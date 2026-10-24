@@ -21,6 +21,24 @@ afterAll(() => {
 });
 
 describe("search", () => {
+  it("keeps readable body text in previews instead of long source links and Markdown", () => {
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO users(id,email,username,password_hash,created_at) VALUES(?,?,?,?,?)")
+      .run("preview-user", "preview@test.local", "preview", "x", now);
+    db.prepare("INSERT INTO sources(id,user_id,name,type,config_enc,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
+      .run("preview-source", "preview-user", "Cubox", "cubox", "x", now, now);
+    db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)")
+      .run("preview-doc", "preview-user", "preview-source", "article", "article", "知识管理",
+        "# 知识管理\n\n[mp.weixin.qq.com](https://mp.weixin.qq.com/s?token=" + "x".repeat(600)
+        + ")\n\n?imageUrl=https%3A%2F%2Fexample.com%2Fimage.png)\n\n**真正的正文内容讲述如何组织知识与有效阅读。**", now, now);
+    search.indexDocument("preview-doc");
+    const result = search.searchDocuments({ userId: "preview-user", query: "真正" });
+    expect(result.items[0].snippet).toContain("真正的正文内容");
+    expect(result.items[0].snippet).not.toContain("https://");
+    expect(result.items[0].snippet).not.toContain("mp.weixin.qq.com");
+    expect(result.items[0].snippet).not.toContain("**");
+    expect(result.items[0].snippet).not.toContain("imageUrl=");
+  });
   it("normalises CJK text into character tokens", () => {
     expect(search.toFtsText("人工智能 AI")).toBe("人 工 智 能 ai");
     expect(search.buildMatchQuery("人工智能 金融")).toBe('"人 工 智 能" AND "金 融"');

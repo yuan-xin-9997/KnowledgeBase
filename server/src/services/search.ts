@@ -112,7 +112,16 @@ interface SearchRow {
 }
 
 function makeSnippet(row: SearchRow, terms: string[], maxLength = 240): string {
-  const source = (row.content || row.description || "").replace(/\s+/g, " ").trim();
+  const source = (row.content || row.description || "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, (_, label: string) =>
+      /^[\w.-]+\.[a-z]{2,}(?:\/\S*)?$/i.test(label.trim()) ? "" : label)
+    .replace(/https?:\/\/[^\s<>)]+/g, "")
+    .replace(/\S*(?:https?%3A%2F%2F|imageUrl=)\S*/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/^[\s#>*-]+/gm, "")
+    .replace(/[*_\x60]/g, "")
+    .replace(/\s+/g, " ").trim();
   if (!source) return "";
   const haystack = source.toLowerCase();
   let index = -1;

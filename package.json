@@ -15,7 +15,8 @@
     "build:server": "npm --workspace @kb/server run build",
     "build:web": "npm --workspace @kb/web run build",
     "start": "node --env-file-if-exists=.env server/dist/index.js",
-    "test": "npm --workspace @kb/server run test",
+    "test": "npm --workspace @kb/server run test && npm run test:web",
+    "test:web": "node --import tsx scripts/check-reader.mjs",
     "typecheck": "npm --workspace @kb/server run typecheck && npm --workspace @kb/web run typecheck"
   },
   "engines": {

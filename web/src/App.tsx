@@ -24,7 +24,7 @@ function Protected({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  if (!user) return <Navigate to="/login" state={{ from: location.pathname + location.search + location.hash }} replace />;
   return <>{children}</>;
 }
 
@@ -43,7 +43,8 @@ export default function App() {
           </Protected>
         }
       >
-        <Route index element={<DashboardPage />} />
+        <Route index element={<Navigate to="/library" replace />} />
+        <Route path="/overview" element={<DashboardPage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/library/:id" element={<DocumentPage />} />
         <Route path="/sources" element={<SourcesPage />} />

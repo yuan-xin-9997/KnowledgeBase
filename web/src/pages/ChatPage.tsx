@@ -600,7 +600,7 @@ export default function ChatPage() {
   const showEmptyLoader = (messagesLoading || bootstrapping) && !session;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-[var(--paper)] lg:h-screen">
+    <div className="flex h-[calc(100dvh-50px)] flex-col overflow-hidden bg-[var(--paper)] lg:h-dvh">
       <div className="flex min-h-0 flex-1">
         <aside className="hidden shrink-0 lg:block">{sessionList}</aside>
 

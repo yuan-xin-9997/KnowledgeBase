@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews } from "../web/src/lib/library.ts";
+
+const preview = cleanExcerpt("# 阅读资料\n[mp.weixin.qq.com](https://example.com/" + "x".repeat(500) + ")\n**可读的正文**", "阅读资料");
+assert.equal(preview, "可读的正文");
+assert.equal(cleanExcerpt("[原文](https://example.com/truncated"), "原文");
+assert.equal(cleanExcerpt("?imageUrl=https%3A%2F%2Fexample.com%2Fimage.png) 这是真正正文"), "这是真正正文");
+assert.equal(cleanExcerpt("内容".repeat(300)).length, 240);
+assert.equal(externalUrl("javascript:alert(1)"), null);
+assert.equal(externalUrl("data:text/html,hello"), null);
+assert.equal(externalUrl("smb://nas/private"), null);
+assert.equal(externalUrl("https://example.com/article"), "https://example.com/article");
+assert.equal(savedQuery(new URLSearchParams("q=知识&sourceId=s1&doc=secret&page=8&redirect=https://example.com")),
+  new URLSearchParams({ q: "知识", sourceId: "s1" }).toString());
+const values = new Map();
+globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+let changed = 0;
+globalThis.window = { dispatchEvent: () => { changed++; } };
+storeSavedViews("reader-one", [{ id: "v1", name: "专业资料", query: "sourceId=s1&doc=private" }]);
+assert.equal(changed, 1);
+assert.equal(loadSavedViews("reader-one")[0].query, "sourceId=s1");
+assert.deepEqual(loadSavedViews("reader-two"), []);
+values.set("kb:views:reader-one", "invalid JSON");
+assert.deepEqual(loadSavedViews("reader-one"), []);
+values.set("kb:views:reader-one", JSON.stringify([{ id: "bad", name: 3, query: "q=x" }]));
+assert.deepEqual(loadSavedViews("reader-one"), []);
+delete globalThis.localStorage;
+delete globalThis.window;
+console.log("Reader checks passed: readable previews, safe links, saved filters and user isolation.");

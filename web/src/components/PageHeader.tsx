@@ -12,14 +12,10 @@ export default function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-[var(--line)] px-6 py-7 sm:flex-row sm:items-end sm:justify-between lg:px-10 lg:py-9">
+    <div className="flex flex-col gap-3 border-b border-[var(--line)] bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-7">
       <div>
-        {eyebrow && (
-          <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[var(--accent-strong)]">
-            {eyebrow}
-          </div>
-        )}
-        <h1 className="font-display text-[27px] font-semibold tracking-tight text-[var(--ink)] lg:text-[31px]">
+        {eyebrow && <span className="sr-only">{eyebrow}</span>}
+        <h1 className="text-[21px] font-semibold tracking-tight text-[var(--ink)]">
           {title}
         </h1>
         {description && (

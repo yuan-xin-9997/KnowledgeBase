@@ -43,36 +43,36 @@ export default function LoginPage() {
           className="absolute inset-0 opacity-[0.35]"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 22% 18%, rgba(201,168,106,0.22), transparent 34%), radial-gradient(circle at 78% 76%, rgba(47,111,104,0.18), transparent 36%)",
+              "radial-gradient(circle at 22% 18%, rgba(98,133,255,0.25), transparent 34%), radial-gradient(circle at 78% 76%, rgba(81,147,229,0.18), transparent 36%)",
           }}
         />
-        <div className="relative flex h-full flex-col px-14 py-12 text-[#ded8ca]">
+        <div className="relative flex h-full flex-col px-14 py-12 text-[#dce5f5]">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#3b3f47] bg-[#1e232a]">
               <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden>
                 <path
                   d="M6 24V10l10 6.5L26 10v14"
-                  stroke="#c9a86a"
+                  stroke="#8ca7ff"
                   strokeWidth="2.2"
                   strokeLinejoin="round"
                 />
-                <path d="M6 24h20" stroke="#6b6558" strokeWidth="1.4" />
+                <path d="M6 24h20" stroke="#6880b1" strokeWidth="1.4" />
               </svg>
             </div>
             <div>
-              <div className="font-display text-2xl font-semibold tracking-wide text-[#f1e9da]">知屿</div>
-              <div className="text-[10px] tracking-[0.22em] text-[#6b665b]">KNOWLEDGE ISLE</div>
+              <div className="font-display text-2xl font-semibold tracking-wide text-[#f2f5ff]">知屿</div>
+              <div className="text-[10px] tracking-[0.22em] text-[#788ba8]">KNOWLEDGE ISLE</div>
             </div>
           </div>
 
           <div className="my-auto max-w-[440px]">
-            <div className="mb-5 h-px w-14 bg-[#c9a86a]" />
-            <h1 className="font-display text-[40px] font-medium leading-[1.25] text-[#f2ecdf]">
+            <div className="mb-5 h-px w-14 bg-[#8ca7ff]" />
+            <h1 className="font-display text-[40px] font-medium leading-[1.25] text-[#f2f5ff]">
               让散落各处的资料，
               <br />
               汇成一座可对话的岛屿。
             </h1>
-            <p className="mt-5 text-[14.5px] leading-7 text-[#9d978a]">
+            <p className="mt-5 text-[14.5px] leading-7 text-[#95a6c3]">
               聚合 NAS 文件、Cubox 收藏、语雀文档与更多来源，用统一检索与 AI
               会话，把个人知识重新组织起来。
             </p>
@@ -87,11 +87,11 @@ export default function LoginPage() {
                 return (
                   <div key={item.title} className="flex items-start gap-3.5">
                     <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border border-[#343a43] bg-[#1b2027]">
-                      <Icon size={15} className="text-[#c9a86a]" />
+                      <Icon size={15} className="text-[#8ca7ff]" />
                     </div>
                     <div>
-                      <div className="text-[13px] font-medium text-[#d8d1c3]">{item.title}</div>
-                      <div className="mt-0.5 text-[12px] text-[#777165]">{item.desc}</div>
+                      <div className="text-[13px] font-medium text-[#d1ddf2]">{item.title}</div>
+                      <div className="mt-0.5 text-[12px] text-[#8d9ebc]">{item.desc}</div>
                     </div>
                   </div>
                 );
@@ -99,7 +99,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="text-[11px] tracking-wide text-[#565249]">
+          <div className="text-[11px] tracking-wide text-[#788ba8]">
             PRIVATE · SELF-HOSTED · YOUR DATA STAYS YOURS
           </div>
         </div>
