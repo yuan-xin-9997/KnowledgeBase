@@ -1,0 +1,28 @@
+{
+  "name": "knowledge-base",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal knowledge base aggregator with full-text search and AI chat",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run build:web && npm run dev:server",
+    "dev:server": "node --env-file-if-exists=.env --import tsx --watch server/src/index.ts",
+    "dev:web": "npm --workspace @kb/web run dev",
+    "build": "npm run build:web && npm run build:server",
+    "build:server": "npm --workspace @kb/server run build",
+    "build:web": "npm --workspace @kb/web run build",
+    "start": "node --env-file-if-exists=.env server/dist/index.js",
+    "test": "npm --workspace @kb/server run test",
+    "typecheck": "npm --workspace @kb/server run typecheck && npm --workspace @kb/web run typecheck"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true
+  }
+}

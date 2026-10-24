@@ -1,0 +1,26 @@
+[Unit]
+Description=Knowledge Base (Zhiyu)
+Documentation=https://github.com/yuan-xin-9997/KnowledgeBase
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jenkins
+Group=jenkins
+WorkingDirectory=/opt/KnowledgeBase
+EnvironmentFile=-/opt/KnowledgeBase/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/KnowledgeBase/server/dist/index.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=25
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/KnowledgeBase/.data
+
+[Install]
+WantedBy=multi-user.target

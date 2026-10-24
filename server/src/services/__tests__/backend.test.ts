@@ -1,0 +1,206 @@
+import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import cookie from "@fastify/cookie";
+
+let tempDir: string;
+let db: typeof import("../../db.js").db;
+let app: FastifyInstance;
+let ownerCookie: string;
+let secondCookie: string;
+let sourceId: string;
+let search: typeof import("../search.js");
+let rag: typeof import("../rag.js");
+let ai: typeof import("../ai.js");
+let provider: ReturnType<typeof ai.createProvider>;
+
+beforeAll(async () => {
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kb-backend-"));
+  process.env.DATA_DIR = tempDir;
+  db = (await import("../../db.js")).db;
+  search = await import("../search.js");
+  rag = await import("../rag.js");
+  ai = await import("../ai.js");
+  const auth = await import("../../auth.js");
+  app = Fastify();
+  await app.register(cookie);
+  app.decorateRequest("user", null);
+  app.addHook("onRequest", async (request) => { request.user = auth.userFromRequest(request); });
+  for (const route of [
+    await import("../../routes/auth.js"), await import("../../routes/sources.js"),
+    await import("../../routes/documents.js"), await import("../../routes/providers.js"),
+    await import("../../routes/chat.js"), await import("../../routes/search.js"),
+  ]) {
+    await app.register(route.default);
+  }
+  const register = async (username: string) => {
+    const response = await app.inject({ method: "POST", url: "/api/auth/register", payload: {
+      username, email: `${username}@test.local`, password: "StrongTestPassword!",
+    } });
+    expect(response.statusCode).toBe(201);
+    return { cookie: String(response.headers["set-cookie"]).split(";")[0], user: response.json().user };
+  };
+  const owner = await register("owner");
+  const second = await register("second");
+  ownerCookie = owner.cookie;
+  secondCookie = second.cookie;
+  expect(owner.user.role).toBe("admin");
+  expect(second.user.role).toBe("user");
+  const response = await app.inject({ method: "POST", url: "/api/sources", headers: { cookie: ownerCookie }, payload: {
+    name: "Private materials", type: "local", config: { path: tempDir },
+  } });
+  expect(response.statusCode).toBe(201);
+  sourceId = response.json().source.id;
+  const now = "2026-10-24T04:00:00.000Z";
+  fs.writeFileSync(path.join(tempDir, "sample.txt"), "0123456789");
+  const insert = db.prepare(`INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,content_format,file_path,published_at,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run("private-doc", owner.user.id, sourceId, "first", "file", "机器学习专业资料", "金融风险控制。" + "无关背景。".repeat(5000) + "尾部特征：梯度爆炸需要裁剪梯度。", "text", path.join(tempDir, "sample.txt"), now, now, now);
+  insert.run("web-doc", owner.user.id, sourceId, "second", "bookmark", "普通收藏", "机器学习需要数据。", "text", null, now, now, now);
+  search.indexDocument("private-doc");
+  search.indexDocument("web-doc");
+  provider = ai.createProvider(owner.user.id, { name: "test", protocol: "openai", baseUrl: "https://example.test/v1", apiKey: "private-model-key", model: "test-model" });
+});
+
+afterEach(() => vi.unstubAllGlobals());
+afterAll(async () => {
+  await app?.close();
+  db?.close();
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe("multi-user API boundaries", () => {
+  it("requires authentication and isolates sources, documents, files and model configs", async () => {
+    expect((await app.inject("/api/documents")).statusCode).toBe(401);
+    for (const url of [`/api/sources/${sourceId}`, "/api/documents/private-doc", "/api/documents/private-doc/file"]) {
+      expect((await app.inject({ url, headers: { cookie: secondCookie } })).statusCode).toBe(404);
+    }
+    const providers = await app.inject({ url: "/api/providers", headers: { cookie: secondCookie } });
+    expect(providers.json().providers).toEqual([]);
+    const result = await app.inject({ url: "/api/search?q=机器学习", headers: { cookie: secondCookie } });
+    expect(result.json().total).toBe(0);
+  });
+
+  it("denies non-admin local file creation and arbitrary directory tests", async () => {
+    for (const url of ["/api/sources", "/api/sources/test"]) {
+      const response = await app.inject({ method: "POST", url, headers: { cookie: secondCookie }, payload: {
+        name: "secrets", type: "local", config: { path: tempDir, includeExtensions: ["db", "key"] },
+      } });
+      expect(response.statusCode).toBe(403);
+    }
+  });
+
+  it("does not return any portion of source credentials", async () => {
+    const { sanitizeConfig } = await import("../sources.js");
+    const result = sanitizeConfig({ apiLink: "https://cubox.pro/c/api/save/secret-token", token: "secret-token", password: "password", host: "nas" });
+    expect(result.config).toEqual({ apiLink: "••••••••", token: "••••••••", password: "••••••••", host: "nas" });
+  });
+
+  it("honors title, body, attachment and complete-day filters", async () => {
+    const query = async (params: string) => (await app.inject({ url: `/api/search?${params}`, headers: { cookie: ownerCookie } })).json();
+    expect((await query("q=机器学习&mode=title")).total).toBe(1);
+    expect((await query("q=机器学习&mode=content")).items.map((item: { id: string }) => item.id)).toEqual(["web-doc"]);
+    expect((await query("q=机器学习&mode=attachment")).items.map((item: { id: string }) => item.id)).toEqual(["private-doc"]);
+    expect((await query("from=2026-10-24&to=2026-10-24")).total).toBe(2);
+    expect((await app.inject({ url: "/api/search?from=invalid", headers: { cookie: ownerCookie } })).statusCode).toBe(400);
+  });
+
+  it("supports suffix and oversized end byte ranges", async () => {
+    for (const [range, expected] of [["bytes=-4", "6789"], ["bytes=8-100", "89"]]) {
+      const response = await app.inject({ url: "/api/documents/private-doc/file", headers: { cookie: ownerCookie, range } });
+      expect(response.statusCode).toBe(206);
+      expect(response.body).toBe(expected);
+      expect(response.headers["content-security-policy"]).toBe("sandbox");
+    }
+  });
+
+  it("isolates conversation read and writes", async () => {
+    const response = await app.inject({ method: "POST", url: "/api/chat/sessions", headers: { cookie: ownerCookie }, payload: { providerId: provider.id, scope: { mode: "none" } } });
+    expect(response.statusCode).toBe(201);
+    const id = response.json().session.id;
+    for (const method of ["GET", "PATCH", "DELETE"] as const) {
+      expect((await app.inject({ method, url: `/api/chat/sessions/${id}`, headers: { cookie: secondCookie }, ...(method === "PATCH" ? { payload: { title: "stolen" } } : {}) })).statusCode).toBe(404);
+    }
+    expect((await app.inject({ method: "POST", url: `/api/chat/sessions/${id}/messages`, headers: { cookie: secondCookie }, payload: { content: "read secrets" } })).statusCode).toBe(404);
+  });
+
+  it("rejects passwords which bcrypt would silently truncate", async () => {
+    const response = await app.inject({ method: "POST", url: "/api/auth/register", payload: {
+      username: "longpassword", email: "longpassword@test.local", password: "密码".repeat(20),
+    } });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("deletes only the removed source's attachment cache and preserves local originals", async () => {
+    const sources = await import("../sources.js");
+    const { attachmentCacheDirectory } = await import("../../connectors/smb-cache.js");
+    const row = sources.createSource(provider.user_id, { name: "cache deletion", type: "smb", config: {} });
+    const dir = attachmentCacheDirectory(tempDir, provider.user_id, row.id);
+    const neighbor = attachmentCacheDirectory(tempDir, provider.user_id, sourceId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(neighbor, { recursive: true });
+    fs.writeFileSync(path.join(dir, "a".repeat(64) + ".txt"), "removed");
+    fs.writeFileSync(path.join(neighbor, "a".repeat(64) + ".txt"), "retained");
+    sources.deleteSource(provider.user_id, row.id);
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(fs.existsSync(neighbor)).toBe(true);
+    expect(fs.readFileSync(path.join(tempDir, "sample.txt"), "utf8")).toBe("0123456789");
+  });
+});
+
+describe("AI scope and protocol handling", () => {
+  it.each([{ error: { message: "token expired" } }, { choices: [] }])("rejects HTTP 200 errors and empty JSON instead of saving them as answers", async (payload) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload)));
+    const onDelta = vi.fn();
+    await expect(ai.streamChat({ provider, messages: [{ role: "user", content: "question" }], onDelta })).rejects.toBeInstanceOf(ai.AiError);
+    expect(onDelta).not.toHaveBeenCalled();
+    await expect(ai.completeOnce({ provider, messages: [{ role: "user", content: "question" }] })).rejects.toBeInstanceOf(ai.AiError);
+  });
+  it("retrieves natural-language matches and late passages only inside the requested scope", () => {
+    const context = rag.retrieveContext(provider.user_id, "请解释梯度爆炸应该如何处理", { mode: "sources", sourceIds: [sourceId], documentIds: [] });
+    expect(context.citations.map((item) => item.documentId)).toContain("private-doc");
+    expect(context.block).toContain("裁剪梯度");
+    expect(rag.retrieveContext("other-user", "梯度", { mode: "documents", sourceIds: [], documentIds: ["private-doc"] }).citations).toEqual([]);
+    expect(rag.retrieveContext(provider.user_id, "机器学习", { mode: "sources", sourceIds: ["other-source"], documentIds: [] }).citations).toEqual([]);
+    expect(rag.retrieveContext(provider.user_id, "机器学习", { mode: "none", sourceIds: [sourceId], documentIds: ["private-doc"] }).citations).toEqual([]);
+  });
+
+  it.each(["openai", "anthropic"] as const)("sends correct %s requests and parses split SSE chunks", async (protocol) => {
+    const fetchMock = vi.fn(async (_url, options) => {
+      const headers = options.headers as Record<string, string>;
+      const body = JSON.parse(options.body as string);
+      expect(protocol === "openai" ? headers.authorization : headers["x-api-key"]).toContain("private-model-key");
+      expect(body.stream).toBe(true);
+      expect(protocol === "openai" ? body.messages[0].content : body.system).toBe("trusted system");
+      const data = protocol === "openai"
+        ? 'data: {"choices":[{"delta":{"content":"回答"}}]}\n\ndata: [DONE]\n\n'
+        : 'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"回答"}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n';
+      const bytes = new TextEncoder().encode(data);
+      return new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes.slice(0, 17)); controller.enqueue(bytes.slice(17)); controller.close(); } }), { headers: { "content-type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const pieces: string[] = [];
+    const text = await ai.streamChat({ provider: { ...provider, protocol }, system: "trusted system", messages: [{ role: "user", content: "question" }], onDelta: (delta) => pieces.push(delta) });
+    expect(text).toBe("回答");
+    expect(pieces).toEqual(["回答"]);
+    expect(fetchMock.mock.calls[0][0]).toBe(protocol === "openai" ? "https://example.test/v1/chat/completions" : "https://example.test/v1/messages");
+  });
+
+  it("streams and persists an answer with document citations through the chat API", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('data: {"choices":[{"delta":{"content":"梯度爆炸可通过梯度裁剪缓解 [1]。"}}]}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } })));
+    const created = await app.inject({ method: "POST", url: "/api/chat/sessions", headers: { cookie: ownerCookie }, payload: {
+      providerId: provider.id, scope: { mode: "documents", documentIds: ["private-doc"] },
+    } });
+    const id = created.json().session.id;
+    const response = await app.inject({ method: "POST", url: `/api/chat/sessions/${id}/messages`, headers: { cookie: ownerCookie }, payload: { content: "梯度爆炸如何缓解？" } });
+    expect(response.statusCode).toBe(200);
+    const events = response.body.split("\n\n").filter((part) => part.startsWith("data: ")).map((part) => JSON.parse(part.slice(6)));
+    expect(events.find((event) => event.type === "citations").citations[0].documentId).toBe("private-doc");
+    expect(events.find((event) => event.type === "done").message.content).toContain("梯度裁剪");
+    const history = await app.inject({ url: `/api/chat/sessions/${id}`, headers: { cookie: ownerCookie } });
+    expect(history.json().messages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"]);
+    expect(history.json().messages[1].citations[0].documentId).toBe("private-doc");
+  });
+});

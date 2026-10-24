@@ -1,0 +1,72 @@
+pipeline {
+    agent { label 'built-in' }
+
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    triggers {
+        pollSCM('H/30 * * * *')
+    }
+
+    environment {
+        DEPLOY_ROOT  = '/opt/KnowledgeBase'
+        SERVICE_NAME = 'knowledgebase.service'
+    }
+
+    stages {
+        stage('Checkout GitHub') {
+            steps {
+                checkout scm
+                sh 'git rev-parse --short HEAD'
+            }
+        }
+
+        stage('Build and test') {
+            // 安装依赖、类型检查、测试、构建。此阶段失败不会停止正在运行的服务。
+            steps {
+                sh 'bash JenkinsConfig/deploy.sh prepare'
+            }
+        }
+
+        stage('Stop service') {
+            steps {
+                sh 'bash JenkinsConfig/deploy.sh stop'
+            }
+        }
+
+        stage('Update /opt/KnowledgeBase') {
+            steps {
+                sh 'bash JenkinsConfig/deploy.sh update'
+            }
+        }
+
+        stage('Start and verify') {
+            steps {
+                sh 'bash JenkinsConfig/deploy.sh start'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "KnowledgeBase ${env.BUILD_NUMBER} 部署成功：http://192.168.0.111:36080"
+            sh '''
+                set +e
+                echo '--- 已部署提交 ---'
+                cat /opt/KnowledgeBase/DEPLOYED_COMMIT 2>/dev/null
+                echo '--- 服务状态 ---'
+                systemctl is-active knowledgebase.service
+                echo '--- 健康检查 ---'
+                curl -fsS --max-time 5 http://127.0.0.1:36080/api/health || true
+            '''
+        }
+        failure {
+            echo '部署失败：请查看 Console Output 中红色报错的阶段。构建与测试阶段失败不会停止正在运行的服务；若在 Stop service 之后失败，服务可能处于停止状态，请登录 192.168.0.111 执行 systemctl status knowledgebase.service 与 journalctl -u knowledgebase.service -n 200 排查。'
+        }
+    }
+}
