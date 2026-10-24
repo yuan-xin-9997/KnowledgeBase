@@ -7,7 +7,7 @@
 `Jenkinsfile` 调用 `deploy.sh` 的四个阶段：
 
 1. `prepare`：`npm ci` → `typecheck` → `test` → `build`。此阶段失败不会停止线上服务。
-2. `stop`：`systemctl stop knowledgebase.service`。
+2. `stop`：`systemctl stop knowledgebase.service`，随后把 `.data` 与 `.env` 备份到 `.backups/`（保留 10 份）。
 3. `update`：`rsync` 工作区到 `/opt/KnowledgeBase`，保留 `.data/`、`.env`、`node_modules/`。
 4. `start`：安装/刷新 systemd 单元，必要时 `npm ci --omit=dev`，启动服务，`health.mjs` 轮询 `/api/health`。
 
