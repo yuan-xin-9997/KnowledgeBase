@@ -367,6 +367,34 @@ function relevantExcerpt(content: string, query: string, maxChars: number): stri
     .map((chunk) => `[片段 ${chunk.index + 1}]\n${chunk.text}`).join("\n…\n").slice(0, maxChars);
 }
 
+function titleKey(title: string): string {
+  return title.normalize("NFKC").replace(/[《》]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function namedTitles(query: string): string[] {
+  return [...new Set([...query.matchAll(/《+([^《》]+)》+/gu)].map((match) => titleKey(match[1])).filter(Boolean))];
+}
+
+function documentExcerptQuery(query: string, title: string): string {
+  if (!namedTitles(query).includes(titleKey(title))) return query;
+  return `${title} ${query.replace(/《+[^《》]+》+/gu, " ")}`;
+}
+
+db.function("kb_title_key", { deterministic: true }, (title) => titleKey(String(title ?? "")));
+
+function namedDocumentIds(userId: string, query: string, sourceIds: string[] | undefined, limit: number): string[] {
+  // A stored title may already include book brackets, producing 《《title》》 in a question.
+  const titles = namedTitles(query);
+  if (titles.length === 0) return [];
+  const filters = buildFilters({ userId, sourceIds }, "d");
+  const rows = db.prepare(`SELECT d.id, kb_title_key(d.title) AS title_key FROM documents d
+    WHERE ${filters.sql} AND kb_title_key(d.title) IN (${titles.map(() => "?").join(",")})
+    ORDER BY d.updated_at DESC, d.id`).all(...filters.params, ...titles) as Array<{ id: string; title_key: string }>;
+  // Give each distinct named title a place before adding duplicate copies from other sources.
+  const first = titles.flatMap((title) => rows.find((row) => row.title_key === title)?.id ?? []);
+  return [...new Set([...first, ...rows.map((row) => row.id)])].slice(0, limit);
+}
+
 /** Find relevant chunks for RAG retrieval. */
 export function retrieveForAi(
   userId: string,
@@ -376,13 +404,14 @@ export function retrieveForAi(
 ): Array<{ id: string; title: string; content: string; sourceId: string; sourceName: string; url: string | null }> {
   if (scope.documentIds?.length) {
     const placeholders = scope.documentIds.map(() => "?").join(",");
+    const filters = buildFilters({ userId, sourceIds: scope.sourceIds }, "d");
     const rows = db
       .prepare(
         `SELECT d.id, d.title, d.content, d.source_id, s.name AS source_name, d.url
          FROM documents d JOIN sources s ON s.id = d.source_id
-         WHERE d.user_id = ? AND d.deleted_at IS NULL AND d.id IN (${placeholders})`,
+         WHERE ${filters.sql} AND d.id IN (${placeholders})`,
       )
-      .all(userId, ...scope.documentIds) as Array<{
+      .all(...filters.params, ...scope.documentIds) as Array<{
       id: string;
       title: string;
       content: string | null;
@@ -393,13 +422,14 @@ export function retrieveForAi(
     return rows.sort((a, b) => scope.documentIds!.indexOf(a.id) - scope.documentIds!.indexOf(b.id)).slice(0, limit).map((row) => ({
       id: row.id,
       title: row.title,
-      content: relevantExcerpt(row.content ?? "", query, 12_000),
+      content: relevantExcerpt(row.content ?? "", documentExcerptQuery(query, row.title), 12_000),
       sourceId: row.source_id,
       sourceName: row.source_name,
       url: row.url,
     }));
   }
 
+  const namedIds = namedDocumentIds(userId, query, scope.sourceIds, limit);
   const response = searchDocuments({
     userId,
     query,
@@ -407,30 +437,18 @@ export function retrieveForAi(
     sourceIds: scope.sourceIds,
     pageSize: limit,
   });
-  let items = response.items;
-  if (items.length === 0) {
+  let candidateIds = response.items.map((item) => item.id);
+  if (candidateIds.length === 0) {
     const terms = retrievalTerms(query);
     const looseMatch = terms.map((term) => buildMatchQuery(term)).filter(Boolean).join(" OR ");
     if (looseMatch) {
       const filters = buildFilters({ userId, sourceIds: scope.sourceIds }, "d");
-      const ids = db.prepare(`SELECT d.id FROM documents_fts JOIN documents d ON d.id = documents_fts.doc_id
+      const rows = db.prepare(`SELECT d.id FROM documents_fts JOIN documents d ON d.id = documents_fts.doc_id
         WHERE documents_fts MATCH ? AND ${filters.sql}
         ORDER BY bm25(documents_fts, 0, 8, 1, 3) LIMIT ?`).all(looseMatch, ...filters.params, limit) as Array<{ id: string }>;
-      if (ids.length) return retrieveForAi(userId, query, { documentIds: ids.map((row) => row.id) }, limit);
+      candidateIds = rows.map((row) => row.id);
     }
   }
-  const details = items.map((item) => {
-    const row = db
-      .prepare("SELECT content FROM documents WHERE id = ? AND user_id = ?")
-      .get(item.id, userId) as { content: string | null } | undefined;
-    return {
-      id: item.id,
-      title: item.title,
-      content: relevantExcerpt(row?.content ?? item.snippet, query, 8_000),
-      sourceId: item.sourceId,
-      sourceName: item.sourceName,
-      url: item.url,
-    };
-  });
-  return details;
+  const ids = [...new Set([...namedIds, ...candidateIds])].slice(0, limit);
+  return ids.length ? retrieveForAi(userId, query, { ...scope, documentIds: ids }, limit) : [];
 }

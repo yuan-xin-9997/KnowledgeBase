@@ -61,3 +61,79 @@ describe("search", () => {
     expect(otherUser.total).toBe(0);
   });
 });
+
+describe("explicitly named documents in RAG", () => {
+  const book = "《ENERGY AND ENVIRONMENT》";
+  const article = "10月份漏洞满天飞，PHP/Java/NodeJS/GitLab/Linux，你的服务安全吗？";
+  const query = `请分别介绍《${book}》和《${article}》并引用`;
+  const owner = "rag-owner";
+  const sources = ["rag-nas", "rag-cubox"];
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    const userInsert = db.prepare("INSERT INTO users(id,email,username,password_hash,display_name,role,created_at) VALUES(?,?,?,?,?,?,?)");
+    for (const id of [owner, "rag-other"]) userInsert.run(id, `${id}@test.local`, id, "x", id, "user", now);
+    const sourceInsert = db.prepare("INSERT INTO sources(id,user_id,name,type,config_enc,enabled,sync_interval_minutes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)");
+    for (const id of [...sources, "rag-hidden", "rag-other-source"]) {
+      sourceInsert.run(id, id === "rag-other-source" ? "rag-other" : owner, id, "local", "x", 1, 0, now, now);
+    }
+    const insert = db.prepare(`INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,content_format,source_created_at,created_at,updated_at,deleted_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const add = (id: string, sourceId: string, title: string, content: string, deleted = false) => {
+      insert.run(id, sourceId === "rag-other-source" ? "rag-other" : owner, sourceId, id, "file", title, content, "text", now, now, now, deleted ? now : null);
+      search.indexDocument(id);
+    };
+    const chunk = (content: string) => content.padEnd(1800, ".");
+    const bookContent = Array.from({ length: 14 }, (_, index) => chunk(index < 6
+      ? `ENERGY AND ENVIRONMENT chapter ${index}: integrated assessment, bottom-up models and differential games.`
+      : `PHP Java NodeJS GitLab Linux appendix ${index}: unrelated software catalog.`)).join("");
+    add("rag-book", sources[0], book, bookContent);
+    add("rag-article", sources[1], article, "文章分析软件漏洞并建议及时更新补丁。");
+    // These documents match every word of the question, so ordinary AND retrieval crowds out the book.
+    for (let index = 0; index < 12; index += 1) add(`rag-popular-${index}`, sources[1], `热门综合资料 ${index}`, query.repeat(4));
+    add("rag-hidden-book", "rag-hidden", book, "An excluded source must never enter the context.");
+    add("rag-foreign-book", "rag-other-source", book, "Another user's private copy.");
+    add("rag-deleted-book", sources[0], book, "A deleted copy.", true);
+  });
+
+  it("reserves places for two named titles before filling with popular-source search results", () => {
+    const ordinary = search.searchDocuments({ userId: owner, query, sourceIds: sources, pageSize: 8 }).items;
+    expect(ordinary).toHaveLength(8);
+    expect(ordinary.every((item) => item.id.startsWith("rag-popular-"))).toBe(true);
+    const result = search.retrieveForAi(owner, query, { sourceIds: sources }, 3);
+    expect(result.slice(0, 2).map((item) => item.id)).toEqual(["rag-book", "rag-article"]);
+    expect(result).toHaveLength(3);
+    expect(new Set(result.map((item) => item.id)).size).toBe(3);
+  });
+
+  it("normalizes nested book brackets, Unicode width, whitespace and title case", () => {
+    const result = search.retrieveForAi(owner, "介绍《《ｅｎｅｒｇｙ   and environment》》", { sourceIds: [sources[0]] });
+    expect(result[0]?.id).toBe("rag-book");
+  });
+
+  it("keeps named-title lookup inside source, user, deletion and explicit-document filters", () => {
+    const onlyCubox = search.retrieveForAi(owner, query, { sourceIds: [sources[1]] });
+    expect(onlyCubox.some((item) => item.id === "rag-book")).toBe(false);
+    expect(onlyCubox.every((item) => item.sourceId === sources[1])).toBe(true);
+    const allowed = search.retrieveForAi(owner, query, { sourceIds: [...sources, "rag-other-source"] });
+    expect(allowed.some((item) => ["rag-hidden-book", "rag-foreign-book", "rag-deleted-book"].includes(item.id))).toBe(false);
+    expect(search.retrieveForAi("missing-user", query, {})).toEqual([]);
+    expect(search.retrieveForAi(owner, query, { sourceIds: [sources[1]], documentIds: ["rag-book", "rag-foreign-book"] })).toEqual([]);
+  });
+
+  it("uses each named document's own title when choosing passages for a combined question", () => {
+    const single = search.retrieveForAi(owner, `请介绍《${book}》并引用`, { documentIds: ["rag-book"] })[0];
+    const combined = search.retrieveForAi(owner, `请介绍《${book}》和《${article}》并引用`, { sourceIds: sources })[0];
+    expect(combined.id).toBe("rag-book");
+    expect(combined.content).toBe(single.content);
+    expect(combined.content).toContain("integrated assessment");
+    expect(combined.content).not.toContain("unrelated software catalog");
+    const focused = search.retrieveForAi(owner, "PHP Java NodeJS GitLab Linux", { documentIds: ["rag-book"] })[0];
+    expect(focused.content).toContain("unrelated software catalog");
+  });
+
+  it("does not inject an unrelated source for an ordinary question without named titles", () => {
+    const result = search.retrieveForAi(owner, "及时更新补丁", { sourceIds: sources });
+    expect(result.map((item) => item.id)).toEqual(["rag-article"]);
+  });
+});
