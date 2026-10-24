@@ -88,6 +88,16 @@ case "${1:-}" in
     else
       log "$service 未运行，跳过"
     fi
+    if [[ -d "$deploy_root/.data" ]]; then
+      backup_root="$deploy_root/.backups"
+      install -d -m 700 "$backup_root"
+      backup_file="$backup_root/knowledgebase-$(date +%Y%m%d-%H%M%S).tar.gz"
+      log "备份数据和受保护配置到 $backup_file"
+      tar -C "$deploy_root" -czf "$backup_file" .data $([[ -f "$deploy_root/.env" ]] && printf '.env')
+      chmod 600 "$backup_file"
+      find "$backup_root" -maxdepth 1 -type f -name 'knowledgebase-*.tar.gz' -printf '%T@ %p\n' \
+        | sort -nr | tail -n +11 | cut -d' ' -f2- | xargs -r rm -f --
+    fi
     ;;
 
   update)
@@ -103,6 +113,7 @@ case "${1:-}" in
     rsync -a --delete \
       --exclude='.git/' \
       --exclude='.data/' \
+      --exclude='.backups/' \
       --exclude='data/' \
       --exclude='.env' \
       --exclude='.env.*' \

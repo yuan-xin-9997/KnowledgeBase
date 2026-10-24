@@ -1,10 +1,12 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
+import formbody from "@fastify/formbody";
 import path from "node:path";
 import { config } from "./config.js";
 import { db } from "./db.js";
-import { userFromRequest } from "./auth.js";
+import { apiCredentialFromRequest, userFromRequest } from "./auth.js";
 import { HttpError } from "./util.js";
 import authRoutes from "./routes/auth.js";
 import sourceRoutes from "./routes/sources.js";
@@ -14,6 +16,10 @@ import tagRoutes from "./routes/tags.js";
 import statsRoutes from "./routes/stats.js";
 import providerRoutes from "./routes/providers.js";
 import chatRoutes from "./routes/chat.js";
+import apiCredentialRoutes from "./routes/api-credentials.js";
+import apiV1Routes from "./routes/api-v1.js";
+import { registerMcp } from "./mcp.js";
+import openapi from "./openapi.js";
 import { cleanupInterruptedJobs, startScheduler, stopScheduler } from "./services/sync.js";
 
 const app = Fastify({
@@ -32,10 +38,19 @@ const app = Fastify({
 });
 
 await app.register(cookie);
+await app.register(formbody);
+await app.register(rateLimit, {
+  max: config.apiRateLimit,
+  timeWindow: "1 minute",
+  keyGenerator: (request) => request.apiCredential?.id || request.ip,
+  allowList: (request) => !request.url.startsWith("/api/v1/") && request.url !== "/mcp",
+});
 
 app.decorateRequest("user", null);
+app.decorateRequest("apiCredential", null);
 app.addHook("onRequest", async (request) => {
   request.user = userFromRequest(request);
+  request.apiCredential = apiCredentialFromRequest(request);
 });
 
 // Basic CSRF hardening for cookie-authenticated mutations.
@@ -68,6 +83,8 @@ app.get("/api/health", async () => {
   };
 });
 
+app.get("/api/openapi.json", async () => openapi);
+
 await app.register(authRoutes);
 await app.register(sourceRoutes);
 await app.register(documentRoutes);
@@ -76,6 +93,9 @@ await app.register(tagRoutes);
 await app.register(statsRoutes);
 await app.register(providerRoutes);
 await app.register(chatRoutes);
+await app.register(apiCredentialRoutes);
+await app.register(apiV1Routes);
+await registerMcp(app);
 
 if (config.webDist) {
   const root = path.resolve(config.webDist);
@@ -102,8 +122,11 @@ if (config.webDist) {
 }
 
 app.setErrorHandler((error, request, reply) => {
+  const external = request.url.startsWith("/api/v1/");
   if (error instanceof HttpError) {
-    reply.code(error.status).send({ error: error.message, details: error.details });
+    reply.code(error.status).send(external
+      ? { error: { code: error.status === 404 ? "NOT_FOUND" : "INVALID_REQUEST", message: error.message, details: error.details } }
+      : { error: error.message, details: error.details });
     return;
   }
   const err = error as { statusCode?: number; message?: string };
@@ -111,9 +134,8 @@ app.setErrorHandler((error, request, reply) => {
   if (statusCode >= 500) {
     request.log.error(error);
   }
-  reply.code(statusCode).send({
-    error: statusCode >= 500 ? "服务器内部错误" : err.message || "请求失败",
-  });
+  const message = statusCode >= 500 ? "服务器内部错误" : err.message || "请求失败";
+  reply.code(statusCode).send(external ? { error: { code: statusCode >= 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED", message } } : { error: message });
 });
 
 cleanupInterruptedJobs();

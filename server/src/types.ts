@@ -8,6 +8,14 @@ export interface AuthUser {
   role: UserRole;
 }
 
+export interface ApiCredential {
+  id: string;
+  userId: string;
+  name: string;
+  scopes: string[];
+  expiresAt: string | null;
+}
+
 export type SourceType = "local" | "smb" | "cubox" | "yuque";
 
 export interface SourceRow {
@@ -117,5 +125,6 @@ export interface SearchResult {
 declare module "fastify" {
   interface FastifyRequest {
     user: AuthUser | null;
+    apiCredential: ApiCredential | null;
   }
 }

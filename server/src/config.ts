@@ -31,6 +31,7 @@ export const config = {
   sessionDays: Number(process.env.SESSION_DAYS || 30),
   syncScheduler: process.env.SYNC_SCHEDULER !== "false",
   logLevel: process.env.LOG_LEVEL || "info",
+  apiRateLimit: Number(process.env.API_RATE_LIMIT || 120),
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });

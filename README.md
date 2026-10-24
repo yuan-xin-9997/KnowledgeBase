@@ -113,6 +113,7 @@ npm run dev:web        # 前端 :5173，/api 代理到 36080
 | `ALLOW_REGISTRATION` | `true` | 是否开放注册 |
 | `SESSION_DAYS` | `30` | 登录有效期 |
 | `SYNC_SCHEDULER` | `true` | 是否启用定时同步 |
+| `API_RATE_LIMIT` | `120` | `/api/v1` 与 `/mcp` 每 IP 每分钟请求上限 |
 | `NODE_ENV` | `production` | 生产环境关闭开发日志美化 |
 
 `APP_SECRET` 丢失将无法解密已保存的数据源密码和模型 Key；请与 `.data/` 一起备份。
@@ -188,6 +189,8 @@ SQLite FTS5 的 `unicode61` 分词器不会切分中文，因此入库时把中�
 ## 验收
 
 `scripts/acceptance.mjs` 会通过真实 API 完成：注册登录 → 接入 NAS 专业资料并同步 → 正文/附件/时间检索与原件读取 → 接入 Cubox 并验证正文检索 → 配置真实模型 → 验证六种知识范围的引用问答与历史保存。需设置 `KB_PASSWORD`，不提供公共默认密码。运行方式见 [验收说明](docs/ACCEPTANCE.md)。
+
+面向 AI 的 v1 API、OpenAPI、远程 MCP 地址、凭据权限和接入示例见 [API 与 MCP 接入说明](docs/API_MCP.md)。
 
 ## 已知限制
 

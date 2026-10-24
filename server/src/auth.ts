@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { db, newId, nowIso } from "./db.js";
 import { randomToken, sha256 } from "./crypto.js";
 import { config } from "./config.js";
-import type { AuthUser, UserRole } from "./types.js";
+import type { ApiCredential, AuthUser, UserRole } from "./types.js";
 
 export const SESSION_COOKIE = "kb_session";
 
@@ -50,6 +50,8 @@ export function destroySession(token: string): void {
 }
 
 export function userFromRequest(request: FastifyRequest): AuthUser | null {
+  const bearer = bearerFromRequest(request);
+  if (bearer) return authenticateApiToken(bearer)?.user ?? null;
   const token = request.cookies?.[SESSION_COOKIE];
   if (!token) return null;
   const row = db
@@ -59,6 +61,63 @@ export function userFromRequest(request: FastifyRequest): AuthUser | null {
     )
     .get(sha256(token), nowIso()) as UserRecord | undefined;
   return row ? mapUser(row) : null;
+}
+
+function bearerFromRequest(request: FastifyRequest): string | null {
+  const value = request.headers.authorization;
+  if (!value) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(value);
+  return match?.[1]?.trim() || null;
+}
+
+export function authenticateApiToken(token: string): { user: AuthUser; credential: ApiCredential } | null {
+  if (!token.startsWith("kb_") && !token.startsWith("mcp_")) return null;
+  const oauth = token.startsWith("mcp_");
+  const row = db.prepare(
+    `SELECT c.id AS credential_id, c.name, c.scopes, c.expires_at,
+            ${oauth ? "t.scopes AS oauth_scopes," : ""} u.*
+     FROM api_credentials c
+     ${oauth ? "JOIN oauth_access_tokens t ON t.credential_id = c.id" : ""}
+     JOIN users u ON u.id = c.user_id
+     WHERE ${oauth ? "t.token_hash" : "c.token_hash"} = ? AND c.revoked_at IS NULL
+       AND (c.expires_at IS NULL OR c.expires_at > ?)`,
+  ).get(sha256(token), nowIso()) as (UserRecord & {
+    credential_id: string; name: string; scopes: string; oauth_scopes?: string; expires_at: string | null;
+  }) | undefined;
+  if (!row) return null;
+  if (oauth) {
+    const valid = db.prepare("SELECT 1 FROM oauth_access_tokens WHERE token_hash = ? AND expires_at > ?").get(sha256(token), nowIso());
+    if (!valid) return null;
+  }
+  db.prepare("UPDATE api_credentials SET last_used_at = ? WHERE id = ?").run(nowIso(), row.credential_id);
+  return {
+    user: mapUser(row),
+    credential: {
+      id: row.credential_id,
+      userId: row.id,
+      name: row.name,
+      scopes: JSON.parse(row.oauth_scopes || row.scopes) as string[],
+      expiresAt: row.expires_at,
+    },
+  };
+}
+
+export function apiCredentialFromRequest(request: FastifyRequest): ApiCredential | null {
+  const token = bearerFromRequest(request);
+  return token ? authenticateApiToken(token)?.credential ?? null : null;
+}
+
+export function requireScope(request: FastifyRequest, reply: FastifyReply, scope: string): boolean {
+  const credential = request.apiCredential;
+  if (!credential) {
+    reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "需要有效的 Bearer 访问令牌" } });
+    return false;
+  }
+  if (!credential.scopes.includes(scope)) {
+    reply.code(403).send({ error: { code: "INSUFFICIENT_SCOPE", message: `缺少权限：${scope}` } });
+    return false;
+  }
+  return true;
 }
 
 export function requireUser(request: FastifyRequest, reply: FastifyReply): AuthUser | null {
