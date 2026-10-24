@@ -49,3 +49,16 @@ it("reads all SMB directory pages and stops only at end-of-directory", async () 
   expect(entries.map(entry => entry.filename)).toEqual(["first.pdf", "second.pdf"]);
   await expect(readAllSmbEntries({ async read() { return [item("loop.pdf")]; } })).rejects.toThrow("分页重复");
 });
+
+it("normalizes the SMB library ./ leaf prefix before joining nested Windows paths", async () => {
+  const { readAllSmbEntries, smbEntryName } = await import("../smb.js");
+  const page = [{ filename: "./105-港口运作优化", fileSize: BigInt(0), creationTime: new Date(), lastWriteTime: new Date(), changeTime: new Date(), type: "Directory" as const }];
+  const pages = [page, []];
+  const entries = await readAllSmbEntries({ async read() { return pages.shift()!; } });
+  expect(entries[0].filename).toBe("105-港口运作优化");
+  expect(path.win32.join("Z_Backup\\专业资料", entries[0].filename)).toBe("Z_Backup\\专业资料\\105-港口运作优化");
+  expect(smbEntryName(".hidden.txt")).toBe(".hidden.txt");
+  expect(smbEntryName("./论文.pdf")).toBe("论文.pdf");
+  expect(() => smbEntryName("./../escape")).toThrow("无效");
+  expect(() => smbEntryName("..\\escape")).toThrow("无效");
+});

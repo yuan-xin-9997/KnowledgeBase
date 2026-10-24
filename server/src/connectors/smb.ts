@@ -24,6 +24,13 @@ const require = createRequire(import.meta.url);
 const Directory = (require("node-smb2/dist/client/Directory.js") as { default: new (tree: SmbTree) => OpenDirectory }).default;
 const File = (require("node-smb2/dist/client/File.js") as { default: new (tree: SmbTree) => OpenFile }).default;
 
+export function smbEntryName(filename: string): string {
+  // node-smb2 adds "./" to ordinary leaf names; it is not part of the NAS filename.
+  const name = filename.replace(/^\.\//, "");
+  if (!name || name === "." || name === ".." || /[\\/\u0000]/.test(name)) throw new Error("SMB目录返回了无效的文件名");
+  return name;
+}
+
 export async function readAllSmbEntries(directory: Pick<OpenDirectory, "read">): Promise<DirectoryItem[]> {
   const entries: DirectoryItem[] = [];
   const seen = new Set<string>();
@@ -35,7 +42,8 @@ export async function readAllSmbEntries(directory: Pick<OpenDirectory, "read">):
       throw error;
     }
     if (!page.length) return entries;
-    for (const item of page) {
+    for (const entry of page) {
+      const item = { ...entry, filename: smbEntryName(entry.filename) };
       if (seen.has(item.filename)) throw new Error("SMB目录分页重复，已停止扫描以保留历史索引");
       seen.add(item.filename);
       entries.push(item);
@@ -46,7 +54,6 @@ export async function readAllSmbEntries(directory: Pick<OpenDirectory, "read">):
 interface SmbClient {
   disconnect(): void;
   readdir(path: string, options: { stats: true }): Promise<SmbEntry[]>;
-  stat(path: string): Promise<SmbEntry>;
   readFile(path: string): Promise<Buffer>;
 }
 
@@ -175,13 +182,6 @@ function createClient(config: SmbConfig): SmbClient {
       client.responseMap.clear();
     },
     readdir,
-    async stat(filePath) {
-      const entries = await readdir(path.win32.dirname(filePath) === "." ? "" : path.win32.dirname(filePath));
-      const name = path.win32.basename(filePath);
-      const entry = entries.find(value => value.name === name);
-      if (!entry) throw new Error("STATUS_OBJECT_NAME_NOT_FOUND");
-      return entry;
-    },
     async readFile(filePath) {
       const file = new File(await connect());
       const chunks: Buffer[] = [];
@@ -189,7 +189,7 @@ function createClient(config: SmbConfig): SmbClient {
       let stream: Readable | undefined;
       try {
         await file.open(filePath);
-        if (file.fileSize > BigInt(config.maxFileSizeMb * 1024 * 1024)) throw new Error("文件读取期间超过大小上限");
+        if (file.fileSize > BigInt(Math.floor(config.maxFileSizeMb * 1024 * 1024))) throw new Error("文件读取期间超过大小上限");
         stream = file.createReadStream();
         for await (const chunk of stream) {
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -284,6 +284,8 @@ interface ScanState {
   client: SmbClient;
   cache: AttachmentCache;
   cacheLimited: number;
+  lastDirectoryError: string | null;
+  log: (message: string) => void;
 }
 
 async function listDirectory(state: ScanState, path: string, isRoot: boolean): Promise<SmbEntry[]> {
@@ -295,6 +297,11 @@ async function listDirectory(state: ScanState, path: string, isRoot: boolean): P
   } catch (error) {
     if (isRoot) throw error;
     state.unreadable += 1;
+    const message = error instanceof Error ? error.message : String(error);
+    const safe = state.config.password ? message.split(state.config.password).join("***") : message;
+    const safePath = state.config.password ? path.split(state.config.password).join("***") : path;
+    state.lastDirectoryError = `${safePath}：${safe}`;
+    state.log(`无法读取目录 ${state.lastDirectoryError}`);
     return [];
   }
 }
@@ -367,7 +374,7 @@ function buildItem(
     ensureNotAborted(state.signal);
     const client = state.client;
     {
-      const info = await smbCall(client, "读取文件信息", () => client.stat(smbPath));
+      const info = entry;
       const infoSize = Number((info as unknown as SmbEntry).size ?? 0);
       if (infoSize > maxBytes) {
         return {
@@ -398,7 +405,7 @@ function buildItem(
       return {
         title: title || extracted.title,
         mimeType: extracted.mimeType ?? mimeType,
-        size: infoSize || buffer.length,
+        size: buffer.length,
         content: extracted.content,
         contentFormat: extracted.contentFormat,
         sourceCreatedAt,
@@ -488,6 +495,8 @@ const connector: Connector = {
       client,
       cache: await createAttachmentCache(appConfig.dataDir, ctx.userId, ctx.sourceId, parsed.maxCacheSizeMb * 1024 * 1024),
       cacheLimited: 0,
+      lastDirectoryError: null,
+      log: ctx.log,
     };
     let scanned = 0;
     const startedAt = Date.now();
@@ -506,6 +515,9 @@ const connector: Connector = {
       disconnectQuietly(client);
     }
 
+    if (scanned === 0 && state.unreadable > 0) {
+      throw new Error(`扫描失败：${state.unreadable} 个目录无法访问，未读取任何文件${state.lastDirectoryError ? `；${state.lastDirectoryError}` : ""}`);
+    }
     const notes: string[] = [];
     let complete = true;
     if (state.hitLimit) {
@@ -514,7 +526,7 @@ const connector: Connector = {
     }
     if (state.unreadable > 0) {
       complete = false;
-      notes.push(`${state.unreadable} 个目录无法访问`);
+      notes.push(`${state.unreadable} 个目录无法访问${state.lastDirectoryError ? `：${state.lastDirectoryError}` : ""}`);
     }
     if (state.oversized > 0) {
       notes.push(`${state.oversized} 个文件超过 ${parsed.maxFileSizeMb} MB，仅记录文件信息`);

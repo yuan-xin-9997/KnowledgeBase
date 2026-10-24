@@ -20,6 +20,8 @@
  *   KB_SMB_USERNAME   SMB 用户名
  *   KB_SMB_PASSWORD   SMB 密码
  *   KB_SMB_PATH       共享下的专业资料目录
+ *   KB_SOURCE_NAME    专业资料来源名称（重跑时复用已有来源）
+ *   KB_CUBOX_NAME     Cubox 来源名称（重跑时复用已有来源）
  *
  * 运行：
  *   node scripts/acceptance.mjs
@@ -270,7 +272,7 @@ async function main() {
   // 1. NAS 专业资料
   log("步骤 1/4：接入专业资料目录");
   const smb = Boolean(process.env.KB_SMB_HOST);
-  const localSource = await createOrUpdateSource(smb ? "NAS 专业资料 SMB（验收）" : "NAS 专业资料（验收）", smb ? "smb" : "local", {
+  const localSource = await createOrUpdateSource(process.env.KB_SOURCE_NAME || (smb ? "NAS 专业资料 SMB（验收）" : "NAS 专业资料（验收）"), smb ? "smb" : "local", {
     ...(smb ? {
       host: process.env.KB_SMB_HOST,
       share: process.env.KB_SMB_SHARE,
@@ -315,7 +317,7 @@ async function main() {
   // 2. Cubox
   log("步骤 2/4：接入 Cubox");
   if (!cuboxLink) throw new Error("缺少 CUBOX_API_LINK 环境变量");
-  const cuboxSource = await createOrUpdateSource("Cubox（验收）", "cubox", {
+  const cuboxSource = await createOrUpdateSource(process.env.KB_CUBOX_NAME || "Cubox（验收）", "cubox", {
     apiLink: cuboxLink,
     limit: 12,
     sinceDays: 0,
