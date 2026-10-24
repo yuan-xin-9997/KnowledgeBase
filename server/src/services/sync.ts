@@ -26,7 +26,7 @@ interface ExistingDoc {
   file_path: string | null;
   source_updated_at: string | null;
   size: number | null;
-  content: string | null;
+  has_content: number | null;
 }
 
 const activeJobs = new Map<string, { jobId: string; controller: AbortController }>();
@@ -137,7 +137,7 @@ export async function runJob(
   const existing = new Map<string, ExistingDoc>();
   for (const row of db
     .prepare(
-      "SELECT id, external_id, source_updated_at, size, content, deleted_at, file_path FROM documents WHERE source_id = ?",
+      "SELECT id, external_id, source_updated_at, size, length(content) > 0 AS has_content, deleted_at, file_path FROM documents WHERE source_id = ?",
     )
     .all(sourceId) as Array<ExistingDoc & { external_id: string }>) {
     existing.set(row.external_id, row);
@@ -186,7 +186,7 @@ export async function runJob(
           !options.force &&
           prior &&
           !prior.deleted_at &&
-          Boolean(prior.content && prior.content.length > 0) &&
+          Boolean(prior.has_content) &&
           item.sourceUpdatedAt &&
           prior.source_updated_at &&
           item.sourceUpdatedAt <= prior.source_updated_at &&
