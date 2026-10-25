@@ -81,7 +81,7 @@ curl -X POST https://kb.example.com/oauth/token \
 
 ## 部署与回滚
 
-Jenkins 流水线在停服后、更新代码前，将 `.data` 和 `.env` 一致性备份到 `/opt/KnowledgeBase/.backups/knowledgebase-时间.tar.gz`，保留最近 10 份。数据库变更只有新增表和索引，不修改历史表；服务启动时自动执行幂等迁移。
+Jenkins 流水线在停服前使用 SQLite Backup API 在线生成一致性快照，并与 `.env`、`secret.key` 一起保存到 `/opt/KnowledgeBase/.backups/knowledgebase-时间.tar.gz`，保留最近 10 份。附件缓存可由来源重新同步，不进入备份。数据库变更只新增表、索引或带默认值的列；服务启动时自动执行幂等迁移。
 
 回滚代码和数据：
 

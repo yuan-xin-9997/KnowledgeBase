@@ -59,6 +59,27 @@ EOF
   fi
 }
 
+backup_live_data() {
+  [[ -f "$deploy_root/.data/knowledge.db" ]] || return 0
+  local backup_root="$deploy_root/.backups"
+  local stamp stage backup_file
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  stage="$backup_root/.stage-$stamp"
+  backup_file="$backup_root/knowledgebase-$stamp.tar.gz"
+  install -d -m 700 "$backup_root" "$stage"
+  log "在线备份 SQLite 与受保护配置到 $backup_file（服务保持运行）"
+  SNAPSHOT_PATH="$stage/knowledge.db" DATABASE_PATH="$deploy_root/.data/knowledge.db" \
+    node --input-type=module -e \
+    'import Database from "better-sqlite3"; const db = new Database(process.env.DATABASE_PATH); await db.backup(process.env.SNAPSHOT_PATH); db.close();'
+  [[ ! -f "$deploy_root/.data/secret.key" ]] || install -m 600 "$deploy_root/.data/secret.key" "$stage/secret.key"
+  [[ ! -f "$deploy_root/.env" ]] || install -m 600 "$deploy_root/.env" "$stage/.env"
+  tar -C "$stage" -czf "$backup_file" .
+  chmod 600 "$backup_file"
+  rm -rf -- "$stage"
+  find "$backup_root" -maxdepth 1 -type f -name 'knowledgebase-*.tar.gz' -printf '%T@ %p\n' \
+    | sort -nr | tail -n +11 | cut -d' ' -f2- | xargs -r rm -f --
+}
+
 case "${1:-}" in
   prepare)
     log "阶段 1/4：构建与测试（不会停止当前服务）"
@@ -77,6 +98,7 @@ case "${1:-}" in
     npm run build
     [[ -f server/dist/index.js ]] || die "服务端构建产物缺失：server/dist/index.js"
     [[ -f web/dist/index.html ]] || die "前端构建产物缺失：web/dist/index.html"
+    backup_live_data
     log "阶段 1/4 完成：构建与测试通过，尚未停止服务"
     ;;
 
@@ -87,18 +109,6 @@ case "${1:-}" in
       log "已停止 $service"
     else
       log "$service 未运行，跳过"
-    fi
-    if [[ -d "$deploy_root/.data" ]]; then
-      backup_root="$deploy_root/.backups"
-      install -d -m 700 "$backup_root"
-      backup_file="$backup_root/knowledgebase-$(date +%Y%m%d-%H%M%S).tar.gz"
-      log "备份数据和受保护配置到 $backup_file"
-      backup_items=(.data)
-      [[ -f "$deploy_root/.env" ]] && backup_items+=(.env)
-      tar -C "$deploy_root" -czf "$backup_file" "${backup_items[@]}"
-      chmod 600 "$backup_file"
-      find "$backup_root" -maxdepth 1 -type f -name 'knowledgebase-*.tar.gz' -printf '%T@ %p\n' \
-        | sort -nr | tail -n +11 | cut -d' ' -f2- | xargs -r rm -f --
     fi
     ;;
 

@@ -6,8 +6,8 @@
 
 `Jenkinsfile` 调用 `deploy.sh` 的四个阶段：
 
-1. `prepare`：`npm ci` → `typecheck` → `test` → `build`。此阶段失败不会停止线上服务。
-2. `stop`：`systemctl stop knowledgebase.service`，随后把 `.data` 与 `.env` 备份到 `.backups/`（保留 10 份）。
+1. `prepare`：`npm ci` → `typecheck` → `test` → `build` → SQLite 在线一致性备份。此阶段失败不会停止线上服务。
+2. `stop`：备份确认成功后才执行 `systemctl stop knowledgebase.service`。
 3. `update`：`rsync` 工作区到 `/opt/KnowledgeBase`，保留 `.data/`、`.env`、`node_modules/`。
 4. `start`：安装/刷新 systemd 单元，必要时 `npm ci --omit=dev`，启动服务，`health.mjs` 轮询 `/api/health`。
 
@@ -104,4 +104,4 @@ git log --oneline -5
 sudo systemctl restart knowledgebase.service
 ```
 
-部署脚本不自动回滚；数据库结构变更目前均为向后兼容的 `CREATE TABLE IF NOT EXISTS`。
+备份只包含 SQLite 一致性快照、`.env` 和 `secret.key`；附件缓存可从原始来源重新同步，不纳入停服前备份。部署脚本不自动回滚；数据库结构变更均为向后兼容的新增表或列。
