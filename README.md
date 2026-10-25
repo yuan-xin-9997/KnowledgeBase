@@ -184,7 +184,7 @@ SQLite FTS5 的 `unicode61` 分词器不会切分中文，因此入库时把中�
 - 模型/来源密钥加密存储，API 只返回掩码
 - 会话 Cookie 为 HttpOnly + SameSite=Lax；生产建议放在 HTTPS 反向代理后
 - 定时任务与同步日志不记录密码或 token
-- 备份：停止服务后复制 `DATA_DIR`（含 `knowledge.db`、`secret.key`）即可
+- 部署备份：流水线在停服前用 SQLite Backup API 在线生成一致性快照，并保护性保存配置；手工备份与回滚见接入说明
 
 ## 验收
 

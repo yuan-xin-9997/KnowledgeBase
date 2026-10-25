@@ -87,8 +87,8 @@ Jenkins 流水线在停服前使用 SQLite Backup API 在线生成一致性快�
 
 1. `sudo systemctl stop knowledgebase.service`。
 2. 保存当前 `/opt/KnowledgeBase/.data`，不要覆盖唯一副本。
-3. 在临时目录解压目标备份，确认包含 `.data/knowledge.db` 与 `secret.key`。
-4. 恢复上一版代码，再把备份的 `.data`、`.env` 恢复到 `/opt/KnowledgeBase`。
+3. 在临时目录解压目标备份，确认包含 `knowledge.db`、`.env`，以及部署中存在时的 `secret.key`。
+4. 恢复上一版代码，把 `knowledge.db`、可选的 `secret.key` 恢复到 `/opt/KnowledgeBase/.data/`，再恢复 `.env`。
 5. `sudo systemctl start knowledgebase.service`，验证 `/api/health`、网页登录和一条只读 API。
 
 仅回滚代码时，新表可安全保留；如需彻底回滚数据库，应恢复部署前备份，而不是手工删表。
