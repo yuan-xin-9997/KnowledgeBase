@@ -116,9 +116,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
         | {
             id: string;
             password_hash: string;
+            active: number;
           }
         | undefined;
-      if (!row || !(await verifyPassword(body.password, row.password_hash))) {
+      if (!row || !row.active || !(await verifyPassword(body.password, row.password_hash))) {
         reply.code(401).send({ error: "账号或密码不正确" });
         return;
       }

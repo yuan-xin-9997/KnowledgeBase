@@ -30,16 +30,19 @@ export function createApiCredential(userId: string, input: {
   return { id, token, createdAt, expiresAt, scopes: input.scopes };
 }
 
-export function listApiCredentials(userId: string): unknown[] {
+export function listApiCredentials(userId: string, page: number, pageSize: number): { items: unknown[]; total: number; page: number; pageSize: number } {
   const rows = db.prepare(
     `SELECT id, name, token_prefix, scopes, expires_at, revoked_at, last_used_at, created_at
-     FROM api_credentials WHERE user_id = ? ORDER BY created_at DESC`,
-  ).all(userId) as Array<Record<string, string | null>>;
-  return rows.map((row) => ({
+     FROM api_credentials WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+  ).all(userId, pageSize, (page - 1) * pageSize) as Array<Record<string, string | null>>;
+  const total = (db.prepare("SELECT COUNT(*) AS count FROM api_credentials WHERE user_id = ?").get(userId) as { count: number }).count;
+  const items = rows.map((row) => ({
     id: row.id, name: row.name, tokenPrefix: row.token_prefix,
     scopes: JSON.parse(row.scopes || "[]"), expiresAt: row.expires_at,
     revokedAt: row.revoked_at, lastUsedAt: row.last_used_at, createdAt: row.created_at,
+    status: row.revoked_at ? "revoked" : row.expires_at && row.expires_at <= nowIso() ? "expired" : "active",
   }));
+  return { items, total, page, pageSize };
 }
 
 export function revokeApiCredential(userId: string, id: string): void {
@@ -61,7 +64,7 @@ export function persistOAuthAccessToken(credentialId: string, allowedScopes: str
 }
 
 export function audit(input: {
-  userId: string; credentialId?: string | null; channel: "api" | "mcp";
+  userId: string; credentialId?: string | null; channel: "api" | "mcp" | "web";
   action: string; targetType: string; targetId?: string | null; result: "success" | "failure";
 }): void {
   db.prepare(

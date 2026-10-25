@@ -22,6 +22,11 @@ if (!schemaFile) {
 }
 db.exec(fs.readFileSync(schemaFile, "utf8"));
 
+const userColumns = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+if (!userColumns.some((column) => column.name === "active")) {
+  db.exec("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+}
+
 export { db };
 
 export function nowIso(): string {

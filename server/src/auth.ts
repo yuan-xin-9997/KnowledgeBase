@@ -60,6 +60,7 @@ export function userFromRequest(request: FastifyRequest): AuthUser | null {
        WHERE s.token_hash = ? AND s.expires_at > ?`,
     )
     .get(sha256(token), nowIso()) as UserRecord | undefined;
+  if (row && (row as UserRecord & { active?: number }).active === 0) return null;
   return row ? mapUser(row) : null;
 }
 
@@ -79,7 +80,7 @@ export function authenticateApiToken(token: string): { user: AuthUser; credentia
      FROM api_credentials c
      ${oauth ? "JOIN oauth_access_tokens t ON t.credential_id = c.id" : ""}
      JOIN users u ON u.id = c.user_id
-     WHERE ${oauth ? "t.token_hash" : "c.token_hash"} = ? AND c.revoked_at IS NULL
+     WHERE ${oauth ? "t.token_hash" : "c.token_hash"} = ? AND c.revoked_at IS NULL AND u.active = 1
        AND (c.expires_at IS NULL OR c.expires_at > ?)`,
   ).get(sha256(token), nowIso()) as (UserRecord & {
     credential_id: string; name: string; scopes: string; oauth_scopes?: string; expires_at: string | null;

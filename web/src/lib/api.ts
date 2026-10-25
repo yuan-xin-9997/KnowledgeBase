@@ -205,6 +205,17 @@ export const api = {
     test: (id: string) =>
       request<{ ok: boolean; message: string }>(`/api/providers/${id}/test`, { method: "POST" }),
   },
+  apiCredentials: {
+    list: (page = 1, pageSize = 10) => request<{
+      credentials: { items: import("./types").ApiCredentialMetadata[]; total: number; page: number; pageSize: number };
+      availableScopes: import("./types").ApiScope[];
+    }>(`/api/api-credentials${qs({ page, pageSize })}`),
+    create: (input: { name: string; scopes: import("./types").ApiScope[]; expiresAt: string | null }) =>
+      request<{ credential: { id: string; token: string; createdAt: string; expiresAt: string | null; scopes: import("./types").ApiScope[] }; warning: string }>("/api/api-credentials", {
+        method: "POST", body: JSON.stringify(input),
+      }),
+    revoke: (id: string) => request<{ ok: boolean }>(`/api/api-credentials/${id}`, { method: "DELETE" }),
+  },
   chat: {
     sessions: () => request<{ sessions: import("./types").ChatSession[] }>("/api/chat/sessions"),
     create: (input: {

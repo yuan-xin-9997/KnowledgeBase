@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BookOpen, Bookmark, Bot, ChevronDown, Clock3, Database, FileText, FolderOpen,
-  HardDrive, LayoutDashboard, LogOut, Menu, Plus, Search, Settings, Tag, X } from "lucide-react";
+  HardDrive, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Search, Settings, Tag, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { loadSavedViews, storeSavedViews, type SavedView } from "../lib/library";
@@ -133,6 +133,7 @@ export default function Layout() {
         <NavLink to="/sources" className={({ isActive }) => "rail-link " + (isActive ? "active" : "")}><Database size={16} /><span>管理来源</span></NavLink>
         <NavLink to="/overview" className={({ isActive }) => "rail-link " + (isActive ? "active" : "")}><LayoutDashboard size={16} /><span>同步总览</span></NavLink>
         <NavLink to="/settings" className={({ isActive }) => "rail-link " + (isActive ? "active" : "")}><Settings size={16} /><span>设置</span></NavLink>
+        <NavLink to="/settings/ai-access" className={({ isActive }) => "rail-link " + (isActive ? "active" : "")}><KeyRound size={16} /><span>AI 接入</span></NavLink>
         <div className="rail-account">
           <span className="rail-avatar">{(user?.displayName || user?.username || "U").slice(0, 1).toUpperCase()}</span>
           <div><strong>{user?.displayName || user?.username}</strong><small>个人知识空间</small></div>

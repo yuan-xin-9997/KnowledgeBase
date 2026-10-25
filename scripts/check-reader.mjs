@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews } from "../web/src/lib/library.ts";
 
 const preview = cleanExcerpt("# 阅读资料\n[mp.weixin.qq.com](https://example.com/" + "x".repeat(500) + ")\n**可读的正文**", "阅读资料");
@@ -26,4 +27,8 @@ values.set("kb:views:reader-one", JSON.stringify([{ id: "bad", name: 3, query: "
 assert.deepEqual(loadSavedViews("reader-one"), []);
 delete globalThis.localStorage;
 delete globalThis.window;
+const aiAccess = fs.readFileSync(new URL("../web/src/pages/AiAccessPage.tsx", import.meta.url), "utf8");
+assert.equal(/localStorage|sessionStorage/.test(aiAccess), false);
+assert.match(aiAccess, /setCreated\(null\)/);
+assert.match(aiAccess, /无法再次查看/);
 console.log("Reader checks passed: readable previews, safe links, saved filters and user isolation.");

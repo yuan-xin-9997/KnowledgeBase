@@ -11,7 +11,7 @@
 
 ## 凭据与权限
 
-用户登录网页后，通过 `POST /api/api-credentials` 创建独立凭据；令牌只显示一次，服务端只保存 SHA-256 哈希。通过 `GET /api/api-credentials` 查看状态，通过 `DELETE /api/api-credentials/{id}` 撤销。凭据可设置 ISO 8601 过期时间。
+用户登录网页后进入「设置 → AI 接入」创建独立凭据；令牌只显示一次，服务端只保存 SHA-256 哈希。页面支持分页查看状态、无副作用连接测试和确认撤销。管理 API 为页面实现细节，不要求用户复制 Cookie 或手工调用。凭据可设置过期时间。
 
 可用 scope：`documents:read`、`sources:read`、`sources:write`、`sync:write`、`jobs:read`。
 
@@ -56,7 +56,7 @@ curl 'https://kb.example.com/api/v1/jobs/job_xxx' \
 
 删除、批量修改、发布、Provider 密钥与聊天删除未通过 MCP 开放。
 
-支持官方 MCP TypeScript/Python SDK、MCP Inspector，以及能为 Streamable HTTP 配置 Bearer Header或 OAuth client_credentials 的客户端。不支持只接受授权码网页登录且无法配置预置客户端凭据的客户端。
+已实际验证官方 MCP TypeScript SDK。官方 Python SDK、MCP Inspector，以及能为 Streamable HTTP 配置 Bearer Header 或 OAuth client_credentials 的客户端已完成协议适配但未逐一实测。不支持只接受授权码网页登录且无法配置预置客户端凭据的客户端。
 
 ```json
 {

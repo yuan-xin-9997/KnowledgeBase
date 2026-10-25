@@ -63,6 +63,7 @@ export default function SettingsPage() {
     <div>
       <PageHeader eyebrow="Settings" title="AI 模型" description="连接你选择的大模型服务，在会话中自由切换。" actions={<button className="btn btn-primary btn-sm" onClick={() => edit(null)}><Plus size={14} />添加模型</button>} />
       <div className="px-6 py-7 lg:px-10">
+        <div className="mb-6 flex flex-wrap gap-2"><span className="btn btn-accent btn-sm" aria-current="page">AI 模型</span><Link className="btn btn-ghost btn-sm" to="/settings/ai-access">AI 接入</Link></div>
         {open && <form onSubmit={save} className="card mb-6 p-5" aria-label={editing ? "编辑模型" : "添加模型"}>
           <h2 className="mb-5 font-display text-lg font-semibold">{editing ? "编辑模型" : "添加模型"}</h2>
           <fieldset disabled={busy} className="grid gap-4 md:grid-cols-2">

@@ -192,6 +192,8 @@ SQLite FTS5 的 `unicode61` 分词器不会切分中文，因此入库时把中�
 
 面向 AI 的 v1 API、OpenAPI、远程 MCP 地址、凭据权限和接入示例见 [API 与 MCP 接入说明](docs/API_MCP.md)。
 
+登录后可在「设置 → AI 接入」直接创建、测试和撤销自动化凭据；完整密钥仅显示一次。需求与设计分别见 [需求规格说明书](docs/REQUIREMENTS.md) 和 [设计说明书](docs/DESIGN.md)。
+
 ## 已知限制
 
 - 图片 OCR、音视频转写未内置（保留元数据与文件名检索）

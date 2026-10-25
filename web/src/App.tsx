@@ -8,6 +8,7 @@ import DocumentPage from "./pages/DocumentPage";
 import SourcesPage from "./pages/SourcesPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
+import AiAccessPage from "./pages/AiAccessPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { Loader2 } from "lucide-react";
 
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/chat/:id" element={<ChatPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings/ai-access" element={<AiAccessPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

@@ -14,6 +14,11 @@ export default {
     },
   },
   paths: {
+    "/api/api-credentials": {
+      get: { summary: "分页列出当前登录用户自己的自动化凭据元数据", description: "仅支持网页登录 Cookie，不返回完整密钥。", parameters: [{ name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } }, { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 50, default: 10 } }], responses: { "200": { description: "凭据元数据、分页信息和当前可选 scope" }, "401": { description: "未登录" }, "403": { description: "拒绝使用 Bearer 凭据管理凭据" } } },
+      post: { summary: "为当前登录用户创建自动化凭据", description: "完整密钥只在本响应返回一次，响应禁止缓存。", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "scopes"], properties: { name: { type: "string", maxLength: 100 }, scopes: { type: "array", minItems: 1, items: { enum: ["documents:read", "sources:read", "sources:write", "sync:write", "jobs:read"] } }, expiresAt: { type: ["string", "null"], format: "date-time" } } }, example: { name: "my-agent", scopes: ["documents:read"], expiresAt: "2027-01-01T00:00:00.000Z" } } } }, responses: { "201": { description: "凭据与一次性完整密钥" }, "400": { description: "scope 或有效期无效" }, "401": { description: "未登录" } } },
+    },
+    "/api/api-credentials/{id}": { delete: { summary: "撤销当前登录用户自己的凭据", description: "同时使所有关联的短期 OAuth token 立即失效。", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "已撤销" }, "404": { description: "凭据不存在或不属于当前用户" } } } },
     "/api/v1/documents": { get: { summary: "分页检索文档", security: bearer, parameters: [
       { name: "q", in: "query", schema: { type: "string", maxLength: 500 }, example: "向量数据库" }, { name: "sourceId", in: "query", schema: { type: "string" } }, { name: "tag", in: "query", schema: { type: "string" } }, { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } }, { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
     ], responses: { "200": { description: "检索结果（items、total、page、pageSize）" }, ...responses } } },

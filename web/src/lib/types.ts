@@ -149,6 +149,20 @@ export interface Provider {
   createdAt: string;
 }
 
+export type ApiScope = "documents:read" | "sources:read" | "sources:write" | "sync:write" | "jobs:read";
+
+export interface ApiCredentialMetadata {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: ApiScope[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  status: "active" | "expired" | "revoked";
+}
+
 export interface ChatScope {
   mode: "all" | "sources" | "documents" | "none";
   sourceIds: string[];
