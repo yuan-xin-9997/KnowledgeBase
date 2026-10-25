@@ -183,6 +183,9 @@ select {
 .textarea::placeholder {
   color: #94a0b2;
 }
+.input-with-icon {
+  padding-left: 40px;
+}
 .input:focus,
 .textarea:focus,
 .select:focus {
