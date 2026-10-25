@@ -66,7 +66,17 @@ export default function AiAccessPage() {
   };
   const copySecret = async () => {
     if (!created) return;
-    await navigator.clipboard.writeText(created.token); toast("密钥已复制，请保存到受保护的凭据存储", "success");
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(created.token);
+      else {
+        const area = document.createElement("textarea");
+        area.value = created.token; area.style.position = "fixed"; area.style.opacity = "0";
+        document.body.appendChild(area); area.select();
+        if (!document.execCommand("copy")) throw new Error("copy failed");
+        area.remove();
+      }
+      toast("密钥已复制，请保存到受保护的凭据存储", "success");
+    } catch { toast("浏览器未允许复制，请手动选择并保存密钥", "error"); }
   };
   const testConnection = async () => {
     if (!created) return;
