@@ -153,7 +153,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-function createClient(config: SmbConfig): SmbClient {
+export function createClient(config: SmbConfig): SmbClient {
   const client = new Client(config.host, { connectTimeout: OPERATION_TIMEOUT_MS, requestTimeout: OPERATION_TIMEOUT_MS });
   let tree: SmbTree | null = null;
   const connect = async () => {

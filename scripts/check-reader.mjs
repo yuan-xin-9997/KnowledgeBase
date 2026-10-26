@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews } from "../web/src/lib/library.ts";
+import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews, documentImageUrl } from "../web/src/lib/library.ts";
 
 const preview = cleanExcerpt("# 阅读资料\n[mp.weixin.qq.com](https://example.com/" + "x".repeat(500) + ")\n**可读的正文**", "阅读资料");
 assert.equal(preview, "可读的正文");
@@ -32,3 +32,10 @@ assert.equal(/localStorage|sessionStorage/.test(aiAccess), false);
 assert.match(aiAccess, /setCreated\(null\)/);
 assert.match(aiAccess, /无法再次查看/);
 console.log("Reader checks passed: readable previews, safe links, saved filters and user isolation.");
+
+const localDoc = { id: "d1", sourceType: "local", url: null };
+assert.equal(documentImageUrl("../图片/a b.png", localDoc), "/api/documents/d1/image?src=" + encodeURIComponent("../图片/a b.png"));
+assert.equal(documentImageUrl("javascript:alert(1)", localDoc), undefined);
+assert.equal(documentImageUrl("https://cdn.example/image.png", localDoc), "https://cdn.example/image.png");
+assert.equal(documentImageUrl("../image.png", { ...localDoc, sourceType: "cubox", url: "https://example.com/a/page" }), "https://example.com/image.png");
+assert.equal(savedQuery(new URLSearchParams("sourceId=s&folder=a%2Fb")), "sourceId=s&folder=a%2Fb");

@@ -1,3 +1,4 @@
+import { documentImageUrl } from "../lib/library";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -276,6 +277,7 @@ export default function DocumentPage() {
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
+                        img: ({ src, alt }) => <img src={documentImageUrl(src, doc)} alt={alt || ""} loading="lazy" referrerPolicy="no-referrer" />,
                         a: ({ href, children }) => (
                           <a href={href} target="_blank" rel="noreferrer noopener">
                             {children}

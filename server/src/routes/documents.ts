@@ -1,3 +1,8 @@
+import { markdownImages, sourceDocumentPath } from "../services/document-images.js";
+import { getSourceRow, sourceConfig } from "../services/sources.js";
+import { parseLocalConfig } from "../connectors/local.js";
+import { createClient, parseSmbConfig } from "../connectors/smb.js";
+import { documentFolder } from "../services/search.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
@@ -13,6 +18,7 @@ const listSchema = z.object({
   q: z.string().trim().max(500).optional(),
   mode: z.enum(["all", "title", "content", "attachment"]).optional(),
   sourceId: z.string().optional(),
+  folder: z.string().max(4096).optional(),
   kind: z.string().optional(),
   tag: z.string().optional(),
   from: z.string().optional(),
@@ -41,6 +47,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         query: query.q,
         mode: query.mode,
         sourceId: query.sourceId,
+        folder: query.folder,
         kind: query.kind,
         tag: query.tag,
         from: searchDate(query.from),
@@ -53,6 +60,54 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
     } catch (error) {
       sendError(reply, error);
     }
+  });
+
+  app.get("/api/documents/folders", async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return;
+    const { sourceId } = parseQuery(z.object({ sourceId: z.string() }), request);
+    const rows = db.prepare("SELECT metadata, external_id, kind FROM documents WHERE user_id = ? AND source_id = ? AND deleted_at IS NULL")
+      .all(user.id, sourceId) as Array<{ metadata: string | null; external_id: string; kind: string }>;
+    const folders = new Set<string>();
+    for (const row of rows) {
+      const parts = documentFolder(row.metadata, row.external_id, row.kind).split("/").filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) folders.add(parts.slice(0, i).join("/"));
+    }
+    return { folders: [...folders].sort((a, b) => a.localeCompare(b)) };
+  });
+
+  app.get("/api/documents/:id/image", async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { src } = parseQuery(z.object({ src: z.string().min(1).max(4096) }), request);
+      const row = db.prepare("SELECT * FROM documents WHERE id = ? AND user_id = ? AND deleted_at IS NULL").get(id, user.id) as DocumentRow | undefined;
+      if (!row) return reply.code(404).send({ error: "文档不存在" });
+      const source = getSourceRow(user.id, row.source_id);
+      const reference = decodeURIComponent(src.split(/[?#]/)[0]).replace(/\\/g, "/");
+      if (/^[a-z][a-z0-9+.-]*:|^\/\/|\x00/i.test(reference)) return reply.code(400).send({ error: "无效图片路径" });
+      const documentPath = sourceDocumentPath(row.external_id, source.type === "smb" ? parseSmbConfig(sourceConfig(source)).basePath : "");
+      const relative = path.posix.normalize(reference.startsWith("/") ? reference.slice(1) : path.posix.join(path.posix.dirname(documentPath), reference));
+      if (relative === ".." || relative.startsWith("../")) return reply.code(403).send({ error: "图片超出来源目录" });
+      const mime = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.bmp': 'image/bmp' } as Record<string, string>)[path.posix.extname(relative).toLowerCase()];
+      if (!mime) return reply.code(400).send({ error: "不支持的图片类型" });
+      let buffer: Buffer;
+      if (source.type === "local") {
+        const root = await fs.promises.realpath(parseLocalConfig(sourceConfig(source)).path);
+        const target = await fs.promises.realpath(path.resolve(root, relative));
+        const inside = path.relative(root, target);
+        if (path.isAbsolute(inside) || inside === ".." || inside.startsWith(".." + path.sep)) return reply.code(403).send({ error: "图片超出来源目录" });
+        if ((await fs.promises.stat(target)).size > 20 * 1024 * 1024) return reply.code(413).send({ error: "图片超过20MB" });
+        buffer = await fs.promises.readFile(target);
+      } else if (source.type === "smb") {
+        const settings = parseSmbConfig(sourceConfig(source));
+        const client = createClient({ ...settings, maxFileSizeMb: 20 });
+        try { buffer = await client.readFile(path.posix.join(settings.basePath.replace(/\\/g, "/"), relative).replace(/\//g, "\\")); }
+        finally { client.disconnect(); }
+      } else return reply.code(404).send({ error: "来源不支持本地图片" });
+      return reply.header("Content-Type", mime).header("X-Content-Type-Options", "nosniff").header("Content-Security-Policy", "sandbox").header("Cache-Control", "private, max-age=300").send(buffer);
+    } catch { return reply.code(404).send({ error: "图片当前不可访问" }); }
   });
 
   app.get("/api/documents/picker", async (request, reply) => {
@@ -123,7 +178,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         url: row.url,
         mimeType: row.mime_type,
         size: row.size,
-        content: row.content,
+        content: row.content_format === "markdown" && row.content ? markdownImages(row.content) : row.content,
         contentFormat: row.content_format,
         language: row.language,
         publishedAt: row.published_at,

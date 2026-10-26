@@ -20,6 +20,9 @@ export default function LibraryPage() {
   const rawMode = params.get("mode");
   const mode = rawMode === "title" || rawMode === "content" || rawMode === "attachment" ? rawMode : "all";
   const sourceId = params.get("sourceId") || "";
+  const folder = params.get("folder") || "";
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folderError, setFolderError] = useState("");
   const kind = params.get("kind") || "";
   const tag = params.get("tag") || "";
   const from = params.get("from") || "";
@@ -41,16 +44,23 @@ export default function LibraryPage() {
   const listScroll = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
   const loadedKey = useRef("");
-  const queryKey = JSON.stringify([q, mode, sourceId, kind, tag, from, to, sort, page, reload]);
+  const queryKey = JSON.stringify([q, mode, sourceId, folder, kind, tag, from, to, sort, page, reload]);
   const items = result?.items || [];
   const total = result?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentIndex = items.findIndex(item => item.id === selectedId);
-  const activeFilters = [sourceId, kind, tag, from, to].filter(Boolean).length;
+  const activeFilters = [sourceId, folder, kind, tag, from, to].filter(Boolean).length;
   const heading = q ? "搜索结果" : sourceId ? sources.find(source => source.id === sourceId)?.name || "来源文档"
     : tag ? "#" + tag : kind === "article" ? "文章" : kind === "file" ? "专业文件" : from ? "最近添加" : "全部文档";
 
   useEffect(() => { setInput(q); }, [q]);
+  useEffect(() => {
+    let active = true;
+    setFolders([]); setFolderError("");
+    if (sourceId) void api.documents.folders(sourceId).then(value => { if (active) setFolders(value.folders); })
+      .catch(() => { if (active) setFolderError("目录加载失败，请刷新重试"); });
+    return () => { active = false; };
+  }, [sourceId, reload]);
   useEffect(() => {
     let active = true;
     void api.sources.list().then(value => { if (active) setSources(value.sources); }).catch(() => undefined);
@@ -60,7 +70,7 @@ export default function LibraryPage() {
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true); setError("");
-    const shared = { mode, sourceId: sourceId || undefined, kind: kind || undefined, tag: tag || undefined,
+    const shared = { folder: folder || undefined, mode, sourceId: sourceId || undefined, kind: kind || undefined, tag: tag || undefined,
       from: from || undefined, to: to || undefined, sort, page, pageSize: PAGE_SIZE };
     const promise = q ? api.search.query({ ...shared, q }) : api.documents.list(shared);
     void promise.then(value => {
@@ -75,8 +85,8 @@ export default function LibraryPage() {
       if (id === requestId.current) { setError(reason instanceof Error ? reason.message : "加载失败，请重试"); setResult(null); }
     }).finally(() => { if (id === requestId.current) setLoading(false); });
     return () => { requestId.current++; };
-  }, [q, mode, sourceId, kind, tag, from, to, sort, page, reload, queryKey, setParams]);
-  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, kind, tag, from, to, page]);
+  }, [q, mode, sourceId, folder, kind, tag, from, to, sort, page, reload, queryKey, setParams]);
+  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, folder, kind, tag, from, to, page]);
   useEffect(() => {
     if (!loading && loadedKey.current === queryKey && !selectedId && !dismissed && items.length && window.matchMedia("(min-width: 900px)").matches) {
       setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", items[0].id); return next; }, { replace: true });
@@ -90,6 +100,7 @@ export default function LibraryPage() {
     setDismissed(false);
     setParams(previous => {
       const next = new URLSearchParams(previous); next.delete("page"); next.delete("doc");
+      if ("sourceId" in changes) next.delete("folder");
       for (const [key, value] of Object.entries(changes)) { if (value) next.set(key, value); else next.delete(key); }
       return next;
     });
@@ -148,6 +159,13 @@ export default function LibraryPage() {
             setSaveOpen(false); toast("筛选已保存到左侧导航", "success");
           } catch { toast("浏览器暂时无法保存筛选", "error"); }
         }}><input aria-label="筛选名称" placeholder="为这个筛选起个名字" value={viewName} maxLength={40} onChange={event => setViewName(event.target.value)} /><button className="btn btn-primary btn-sm" disabled={!viewName.trim()}>保存</button><button type="button" className="icon-button" aria-label="取消保存筛选" onClick={() => setSaveOpen(false)}><X size={14} /></button></form>}
+        {sourceId && <nav className="source-folders" aria-label="来源文件夹">
+          <button className={!folder ? "active" : ""} onClick={() => patch({ folder: null })}><FolderOpen size={14} />全部文件夹</button>
+          {folderError && <p role="alert">{folderError}</p>}
+          {folders.map(value => <button key={value} title={value} className={folder === value ? "active" : ""}
+            style={{ paddingLeft: 12 + (value.split("/").length - 1) * 16 }} onClick={() => patch({ folder: value })}>
+            <FolderOpen size={14} />{value.split("/").at(-1)}</button>)}
+        </nav>}
         <div className="library-list-meta"><span>{loading ? "正在查找…" : formatNumber(total) + " 篇资料"}{q && <strong> · “{q}”</strong>}</span>
           <label><ArrowDownWideNarrow size={12} /><select aria-label="排序方式" value={sort} onChange={event => patch({ sort: event.target.value })}>
             {q && <option value="relevance">相关度</option>}<option value="newest">最新优先</option><option value="oldest">最早优先</option>

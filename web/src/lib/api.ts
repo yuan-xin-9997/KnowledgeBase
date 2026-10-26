@@ -120,10 +120,12 @@ export const api = {
     list: () => request<{ jobs: import("./types").SyncJob[] }>("/api/sync-jobs"),
   },
   documents: {
+    folders: (sourceId: string) => request<{ folders: string[] }>(`/api/documents/folders${qs({ sourceId })}`),
     list: (params: {
       q?: string;
       mode?: string;
       sourceId?: string;
+      folder?: string;
       kind?: string;
       tag?: string;
       from?: string;
@@ -154,6 +156,7 @@ export const api = {
       q?: string;
       mode?: string;
       sourceId?: string;
+      folder?: string;
       kind?: string;
       tag?: string;
       from?: string;

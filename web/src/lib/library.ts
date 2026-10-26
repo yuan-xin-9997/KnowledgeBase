@@ -26,7 +26,7 @@ export function externalUrl(value: string | null | undefined): string | null {
 
 export function savedQuery(params: URLSearchParams): string {
   const copy = new URLSearchParams();
-  for (const key of ["q", "mode", "sourceId", "kind", "tag", "from", "to", "sort"]) {
+  for (const key of ["q", "mode", "sourceId", "folder", "kind", "tag", "from", "to", "sort"]) {
     const value = params.get(key);
     if (value) copy.set(key, value);
   }
@@ -47,4 +47,14 @@ export function loadSavedViews(userId: string): SavedView[] {
 export function storeSavedViews(userId: string, views: SavedView[]): void {
   localStorage.setItem("kb:views:" + userId, JSON.stringify(views.slice(0, 12)));
   window.dispatchEvent(new Event("kb:views-changed"));
+}
+
+export function documentImageUrl(src: string | undefined, doc: { id: string; sourceType: string; url: string | null }): string | undefined {
+  if (!src) return undefined;
+  if (/^https?:\/\//i.test(src)) return src;
+  if (/^\/\//.test(src)) return "https:" + src;
+  if (/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)) return src;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return undefined;
+  if (["local", "smb"].includes(doc.sourceType)) return `/api/documents/${encodeURIComponent(doc.id)}/image?src=${encodeURIComponent(src)}`;
+  try { const url = new URL(src, doc.url || ""); return externalUrl(url.href) || undefined; } catch { return undefined; }
 }

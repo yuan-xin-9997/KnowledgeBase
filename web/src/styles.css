@@ -724,3 +724,7 @@ mark {
   .reader-plain { font-size: 13px; }
   .assistant-composer textarea { font-size: 14px; }
 }
+
+.source-folders { max-height: 240px; overflow: auto; margin: 8px 0; border-block: 1px solid var(--line); padding: 6px 0; }
+.source-folders button { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 12px; text-align: left; font-size: 12px; overflow-wrap: anywhere; }
+.source-folders button:hover, .source-folders button.active { background: var(--paper-2); color: var(--accent-strong); }

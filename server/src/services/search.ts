@@ -77,6 +77,7 @@ export interface SearchOptions {
   mode?: "all" | "title" | "content" | "attachment";
   sourceId?: string;
   sourceIds?: string[];
+  folder?: string;
   kind?: string;
   tag?: string;
   from?: string;
@@ -167,6 +168,10 @@ function buildFilters(
   if (options.sourceIds?.length) {
     clauses.push(`${alias}.source_id IN (${options.sourceIds.map(() => "?").join(",")})`);
     params.push(...options.sourceIds);
+  }
+  if (options.folder !== undefined) {
+    clauses.push(`(kb_folder(${alias}.metadata, ${alias}.external_id, ${alias}.kind) = ? OR substr(kb_folder(${alias}.metadata, ${alias}.external_id, ${alias}.kind), 1, ?) = ?)`);
+    params.push(options.folder, options.folder.length + 1, options.folder + "/");
   }
   if (options.mode === "attachment") clauses.push(`${alias}.kind = 'file'`);
   if (options.kind) {
@@ -461,3 +466,12 @@ export function retrieveForAi(
   const ids = [...new Set([...namedIds, ...candidateIds])].slice(0, limit);
   return ids.length ? retrieveForAi(userId, query, { ...scope, documentIds: ids }, limit) : [];
 }
+
+export function documentFolder(metadata: string | null, externalId: string, kind: string): string {
+  let meta: Record<string, unknown> = {};
+  try { meta = JSON.parse(metadata || "{}"); } catch { /* Older metadata may be invalid. */ }
+  const relative = typeof meta.relativePath === "string" ? meta.relativePath : kind === "file" ? externalId : "";
+  return relative ? relative.replace(/\\/g, "/").split("/").slice(0, -1).join("/")
+    : typeof meta.folder === "string" ? meta.folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") : "";
+}
+db.function("kb_folder", { deterministic: true }, (metadata, externalId, kind) => documentFolder(metadata as string | null, String(externalId), String(kind)));

@@ -83,6 +83,68 @@ describe("multi-user API boundaries", () => {
     expect(result.json().total).toBe(0);
   });
 
+  it("serves relative images read-only and isolates source folders", async () => {
+    const ownerId = (db.prepare("SELECT user_id FROM sources WHERE id = ?").get(sourceId) as { user_id: string }).user_id;
+    const now = new Date().toISOString();
+    const insert = db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,content_format,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)");
+    insert.run("image-doc", ownerId, sourceId, "教程/子目录/说明.md", "file", "图片教程", '<img src="../../assets/测试.png" alt="示例" />', "markdown", now, now);
+    insert.run("sibling-doc", ownerId, sourceId, "教程2/说明.md", "file", "其他", "", "text", now, now);
+    fs.mkdirSync(path.join(tempDir, "assets"));
+    const imagePath = path.join(tempDir, "assets", "测试.png");
+    const image = Buffer.from("iVBORw0KGgo=", "base64");
+    fs.writeFileSync(imagePath, image);
+    const before = fs.statSync(imagePath).mtimeMs;
+    const imageUrl = "/api/documents/image-doc/image?src=" + encodeURIComponent("../../assets/测试.png");
+    expect((await app.inject(imageUrl)).statusCode).toBe(401);
+    expect((await app.inject({ url: imageUrl, headers: { cookie: secondCookie } })).statusCode).toBe(404);
+    const response = await app.inject({ url: imageUrl, headers: { cookie: ownerCookie } });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("image/png");
+    expect(response.rawPayload).toEqual(image);
+    for (const src of ["../../../outside.png", "%2e%2e/%2e%2e/%2e%2e/outside.png", "../../sample.txt", "file:///secret.png"]) {
+      const result = await app.inject({ url: "/api/documents/image-doc/image?src=" + encodeURIComponent(src), headers: { cookie: ownerCookie } });
+      expect([400, 403]).toContain(result.statusCode);
+    }
+    expect(fs.readFileSync(imagePath)).toEqual(image);
+    expect(fs.statSync(imagePath).mtimeMs).toBe(before);
+    expect((await app.inject({ url: "/api/documents/image-doc", headers: { cookie: ownerCookie } })).json().document.content).toContain("![示例]");
+    expect((db.prepare("SELECT content FROM documents WHERE id = 'image-doc'").get() as { content: string }).content).toContain("<img");
+    const foldersUrl = "/api/documents/folders?sourceId=" + sourceId;
+    expect((await app.inject({ url: foldersUrl, headers: { cookie: ownerCookie } })).json().folders).toEqual(["教程", "教程/子目录", "教程2"]);
+    expect((await app.inject({ url: foldersUrl, headers: { cookie: secondCookie } })).json().folders).toEqual([]);
+    for (const endpoint of ["documents", "search"]) {
+      const result = await app.inject({ url: `/api/${endpoint}?sourceId=${sourceId}&folder=` + encodeURIComponent("教程"), headers: { cookie: ownerCookie } });
+      expect(result.json().items.map((item: { id: string }) => item.id)).toEqual(["image-doc"]);
+    }
+    db.prepare("DELETE FROM documents WHERE id IN ('image-doc', 'sibling-doc')").run();
+  });
+
+  it("reads SMB image paths inside the source base without using cached document paths", async () => {
+    const smb = await import("../../connectors/smb.js");
+    const readFile = vi.fn().mockResolvedValue(Buffer.from("image"));
+    const disconnect = vi.fn();
+    const factory = vi.spyOn(smb, "createClient").mockReturnValue({ readFile, disconnect, readdir: vi.fn() });
+    try {
+      const created = await app.inject({ method: "POST", url: "/api/sources", headers: { cookie: ownerCookie }, payload: {
+        name: "SMB images", type: "smb", config: { host: "nas.test", share: "docs", username: "reader", password: "test", basePath: "资料" },
+      } });
+      expect(created.statusCode).toBe(201);
+      const id = created.json().source.id;
+      const owner = (db.prepare("SELECT user_id FROM sources WHERE id = ?").get(id) as { user_id: string }).user_id;
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+        .run("smb-image-doc", owner, id, "资料/教程/文档.md", "file", "SMB", now, now);
+      const url = (src: string) => "/api/documents/smb-image-doc/image?src=" + encodeURIComponent(src);
+      expect((await app.inject({ url: url("../assets/a.png"), headers: { cookie: ownerCookie } })).statusCode).toBe(200);
+      expect(readFile).toHaveBeenCalledWith("资料\\assets\\a.png");
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect((await app.inject({ url: url("../../secret.png"), headers: { cookie: ownerCookie } })).statusCode).toBe(403);
+      expect(readFile).toHaveBeenCalledOnce();
+      db.prepare("DELETE FROM documents WHERE id = 'smb-image-doc'").run();
+      db.prepare("DELETE FROM sources WHERE id = ?").run(id);
+    } finally { factory.mockRestore(); }
+  });
+
   it("denies non-admin local file creation and arbitrary directory tests", async () => {
     for (const url of ["/api/sources", "/api/sources/test"]) {
       const response = await app.inject({ method: "POST", url, headers: { cookie: secondCookie }, payload: {

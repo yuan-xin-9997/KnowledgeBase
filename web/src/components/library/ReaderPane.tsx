@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowUpRight, Bot, CalendarDays, ChevronDown, ChevronLeft, C
   ExternalLink, FileText, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
 import { api } from "../../lib/api";
 import type { DocumentDetail } from "../../lib/types";
-import { externalUrl } from "../../lib/library";
+import { externalUrl, documentImageUrl } from "../../lib/library";
 import { formatBytes, formatDate, sourceTypeLabel } from "../../lib/format";
 import ReaderAssistant from "./ReaderAssistant";
 
@@ -73,7 +73,7 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag }: {
           {content.trim() ? <div className={"prose-kb reader-content " + (doc.contentFormat === "markdown" ? "" : "reader-plain")}>
             {doc.contentFormat === "markdown" ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
               a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
-              img: ({ src, alt }) => <img src={src} alt={alt || ""} loading="lazy" />,
+              img: ({ src, alt }) => <img src={documentImageUrl(src, doc)} alt={alt || ""} loading="lazy" referrerPolicy="no-referrer" />,
             }}>{content}</ReactMarkdown> : content}
           </div> : <div className="reader-no-body"><FileText size={27} /><h3>{doc.kind === "note" ? "这条笔记没有额外正文" : "暂时只有文件信息"}</h3><p>{doc.kind === "note" ? "笔记标题已完整显示在上方。来源没有提供其他可阅读的文本内容。" : doc.metadata?.sizeExceeded ? "文件超过来源的大小上限，尚未提取正文。可以在来源设置中调整上限后重新同步。" : "这个格式尚未提取出可阅读的正文。你可以打开原文件，或到信息来源中重新同步。"}</p><Link to="/sources" className="btn btn-ghost btn-sm">查看来源设置</Link></div>}
           {fullContent.length > limit && <button className="reading-load-more" onClick={() => setLimit(value => value + 60000)}>继续载入正文<span>已显示 {limit.toLocaleString("zh-CN")} / {fullContent.length.toLocaleString("zh-CN")} 字符</span><ChevronDown size={16} /></button>}
