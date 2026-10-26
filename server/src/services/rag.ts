@@ -7,6 +7,7 @@ export interface ChatScope {
   mode: ScopeMode;
   sourceIds: string[];
   documentIds: string[];
+  folder?: string;
 }
 
 export const DEFAULT_SCOPE: ChatScope = {
@@ -39,7 +40,7 @@ function cleanIds(value: unknown): string[] {
  */
 export function normalizeScope(input: unknown, base: ChatScope = DEFAULT_SCOPE): ChatScope {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { mode: base.mode, sourceIds: [...base.sourceIds], documentIds: [...base.documentIds] };
+    return { mode: base.mode, sourceIds: [...base.sourceIds], documentIds: [...base.documentIds], ...(base.folder !== undefined ? { folder: base.folder } : {}) };
   }
   const record = input as Record<string, unknown>;
   const mode =
@@ -48,6 +49,7 @@ export function normalizeScope(input: unknown, base: ChatScope = DEFAULT_SCOPE):
       : base.mode;
   return {
     mode,
+    ...(record.folder === undefined ? base.folder !== undefined ? { folder: base.folder } : {} : typeof record.folder === "string" && record.folder.length <= 4096 ? { folder: record.folder } : {}),
     sourceIds: record.sourceIds === undefined ? [...base.sourceIds] : cleanIds(record.sourceIds),
     documentIds:
       record.documentIds === undefined ? [...base.documentIds] : cleanIds(record.documentIds),
@@ -110,7 +112,7 @@ function collectDocuments(query: string, userId: string, scope: ChatScope): {
       notes.push("当前会话选择了「信息来源」范围，但没有选中任何来源。");
       return { docs: [], notes };
     }
-    return { docs: retrieveForAi(userId, query, { sourceIds: scope.sourceIds }, MAX_RESULTS), notes };
+    return { docs: retrieveForAi(userId, query, { sourceIds: scope.sourceIds, folder: scope.folder }, MAX_RESULTS), notes };
   }
 
   return {
@@ -164,6 +166,7 @@ function formatContext(docs: RetrievedDoc[]): {
       title,
       sourceName,
       url: doc.url ?? null,
+      excerpt: body.replace(/^\[片段 \d+\]\n/, "").slice(0, 160),
     });
   }
 

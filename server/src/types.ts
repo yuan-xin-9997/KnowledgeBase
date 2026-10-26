@@ -105,6 +105,7 @@ export interface ChatMessageRow {
 }
 
 export interface SearchResult {
+  duplicateCount?: number;
   id: string;
   title: string;
   snippet: string;

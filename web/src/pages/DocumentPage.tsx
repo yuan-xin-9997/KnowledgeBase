@@ -1,8 +1,6 @@
-import { documentImageUrl } from "../lib/library";
+import ReadingBody from "../components/library/ReadingBody";
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
@@ -51,6 +49,7 @@ function MetaRow({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function DocumentPage() {
+  const [searchParams] = useSearchParams();
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
@@ -161,7 +160,6 @@ export default function DocumentPage() {
     );
   }
 
-  const isMarkdown = doc.contentFormat.toLowerCase() === "markdown";
   const originalUrl = httpUrl(doc.url);
   const displayDate = doc.sourceCreatedAt || doc.publishedAt || doc.createdAt;
   const hasContent = Boolean(doc.content && doc.content.trim());
@@ -272,27 +270,7 @@ export default function DocumentPage() {
               )}
 
               {hasContent ? (
-                isMarkdown ? (
-                  <div className="prose-kb">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        img: ({ src, alt }) => <img src={documentImageUrl(src, doc)} alt={alt || ""} loading="lazy" referrerPolicy="no-referrer" />,
-                        a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noreferrer noopener">
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {doc.content ?? ""}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-wrap break-words text-[15px] leading-[1.85] text-[#2b2a26]">
-                    {doc.content}
-                  </div>
-                )
+                <ReadingBody key={doc.id} document={doc} query={searchParams.get("q") || ""} passage={searchParams.get("passage") || ""} />
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <p className="text-[13px] text-[var(--muted)]">这篇文档没有可读正文。</p>
@@ -383,7 +361,7 @@ export default function DocumentPage() {
                 {doc.mimeType && <MetaRow label="文件类型">{doc.mimeType}</MetaRow>}
                 {doc.language && <MetaRow label="语言">{doc.language}</MetaRow>}
                 <MetaRow label="内容格式">
-                  {isMarkdown ? "Markdown" : "纯文本"}
+                  {doc.contentFormat === "markdown" ? "Markdown" : "纯文本"}
                 </MetaRow>
               </dl>
 

@@ -1,3 +1,4 @@
+import SyncJobDetails from "../components/sources/SyncJobDetails";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Database, Plus, RefreshCw, Pencil, Trash2, PlugZap, History, StopCircle } from "lucide-react";
@@ -80,7 +81,7 @@ export default function SourcesPage() {
           </section>;
         })}
       </div>}
-      {historySource && <section className="card mt-6 p-5" aria-label="同步历史"><div className="flex items-center justify-between gap-2"><h2 className="font-display text-lg font-semibold">{historySource.name} · 同步记录</h2><button className="btn btn-ghost btn-sm" onClick={() => setHistorySource(null)}>关闭</button></div>{jobsLoading ? <Spinner /> : jobs.length === 0 ? <p className="py-6 text-sm text-[var(--muted)]">暂无同步记录。</p> : <div className="mt-4 space-y-4">{jobs.map((job) => <div key={job.id} className="border-t border-[var(--line)] pt-4 text-xs"><div className="flex flex-wrap items-center gap-3"><span className={`chip ${jobStatusMeta(job.status).chipClass}`}>{jobStatusMeta(job.status).label}</span><span className="text-[var(--muted)]">{formatAbsoluteTime(job.createdAt)}</span></div>{job.stats && <p className="mt-2 leading-5">{formatStatsSummary(job.stats)} · 删除 {job.stats.deleted}{job.stats.note ? ` · ${job.stats.note}` : ""}</p>}{job.error && <p className="mt-2 break-words text-[var(--danger)]">{job.error}</p>}</div>)}</div>}</section>}
+      {historySource && <section className="card mt-6 p-5" aria-label="同步历史"><div className="flex items-center justify-between gap-2"><h2 className="font-display text-lg font-semibold">{historySource.name} · 同步记录</h2><button className="btn btn-ghost btn-sm" onClick={() => setHistorySource(null)}>关闭</button></div>{jobsLoading ? <Spinner /> : jobs.length === 0 ? <p className="py-6 text-sm text-[var(--muted)]">暂无同步记录。</p> : <div className="mt-4 space-y-4">{jobs.map((job) => <div key={job.id} className="border-t border-[var(--line)] pt-4 text-xs"><div className="flex flex-wrap items-center gap-3"><span className={`chip ${jobStatusMeta(job.status).chipClass}`}>{jobStatusMeta(job.status).label}</span><span className="text-[var(--muted)]">{formatAbsoluteTime(job.createdAt)}</span></div>{job.stats && <p className="mt-2 leading-5">{formatStatsSummary(job.stats)} · 删除 {job.stats.deleted}{job.stats.note ? ` · ${job.stats.note}` : ""}</p>}{job.error && <p className="mt-2 break-words text-[var(--danger)]">{job.error}</p>}<SyncJobDetails job={job} sourceId={historySource.id} onRetry={() => { toast("已开始重试失败项", "success"); void load(); void history(historySource); }} /></div>)}</div>}</section>}
     </div>
   </div>;
 }

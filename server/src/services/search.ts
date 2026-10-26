@@ -1,3 +1,5 @@
+import { documentFolder, contentFingerprint } from "./document-meta.js";
+export { documentFolder } from "./document-meta.js";
 import { db } from "../db.js";
 import type { SearchResult } from "../types.js";
 
@@ -78,6 +80,7 @@ export interface SearchOptions {
   sourceId?: string;
   sourceIds?: string[];
   folder?: string;
+  deduplicate?: boolean;
   kind?: string;
   tag?: string;
   from?: string;
@@ -191,6 +194,13 @@ function buildFilters(
   if (options.to) {
     clauses.push(`COALESCE(${alias}.published_at, ${alias}.source_created_at, ${alias}.created_at) <= ?`);
     params.push(options.to);
+  }
+  if (options.deduplicate) {
+    const copies = buildFilters({ ...options, deduplicate: false }, "copy");
+    const match = options.query ? buildMatchQuery(options.query) : null;
+    const columnMatch = options.mode === "title" ? `{title} : (${match})` : options.mode === "content" ? `{body} : (${match})` : match;
+    clauses.push(`(${alias}.file_hash IS NULL OR NOT EXISTS (SELECT 1 FROM documents copy WHERE copy.file_hash = ${alias}.file_hash AND copy.id < ${alias}.id AND ${copies.sql}${match ? " AND copy.id IN (SELECT doc_id FROM documents_fts WHERE documents_fts MATCH ?)" : ""}))`);
+    params.push(...copies.params, ...(match ? [columnMatch] : []));
   }
   return { sql: clauses.join(" AND "), params };
 }
@@ -307,7 +317,9 @@ function toResult(
   terms: string[],
   snippetLength: number,
 ): SearchResult {
+  const duplicate = db.prepare(`SELECT COUNT(*) n FROM documents other JOIN documents current ON current.id = ? WHERE other.user_id = current.user_id AND current.file_hash IS NOT NULL AND other.file_hash = current.file_hash AND other.id != current.id AND other.deleted_at IS NULL`).get(row.id) as { n: number };
   return {
+    duplicateCount: duplicate.n,
     id: row.id,
     title: row.title,
     snippet: makeSnippet(row, terms, snippetLength),
@@ -337,6 +349,7 @@ export function indexDocument(documentId: string): void {
     | { id: string; title: string; content: string | null; description: string | null; tags: string | null }
     | undefined;
   if (!row) return;
+  db.prepare("UPDATE documents SET file_hash = ? WHERE id = ?").run(contentFingerprint(row.content), documentId);
   db.prepare("DELETE FROM documents_fts WHERE doc_id = ?").run(documentId);
   db.prepare(
     "INSERT INTO documents_fts(doc_id, title, body, tags) VALUES(?, ?, ?, ?)",
@@ -396,11 +409,11 @@ function documentExcerptQuery(query: string, title: string): string {
 
 db.function("kb_title_key", { deterministic: true }, (title) => titleKey(String(title ?? "")));
 
-function namedDocumentIds(userId: string, query: string, sourceIds: string[] | undefined, limit: number): string[] {
+function namedDocumentIds(userId: string, query: string, sourceIds: string[] | undefined, limit: number, folder?: string): string[] {
   // A stored title may already include book brackets, producing 《《title》》 in a question.
   const titles = namedTitles(query);
   if (titles.length === 0) return [];
-  const filters = buildFilters({ userId, sourceIds }, "d");
+  const filters = buildFilters({ userId, sourceIds, folder }, "d");
   const rows = db.prepare(`SELECT d.id, kb_title_key(d.title) AS title_key FROM documents d
     WHERE ${filters.sql} AND kb_title_key(d.title) IN (${titles.map(() => "?").join(",")})
     ORDER BY d.updated_at DESC, d.id`).all(...filters.params, ...titles) as Array<{ id: string; title_key: string }>;
@@ -413,12 +426,12 @@ function namedDocumentIds(userId: string, query: string, sourceIds: string[] | u
 export function retrieveForAi(
   userId: string,
   query: string,
-  scope: { sourceIds?: string[]; documentIds?: string[] },
+  scope: { sourceIds?: string[]; documentIds?: string[]; folder?: string },
   limit = 8,
 ): Array<{ id: string; title: string; content: string; sourceId: string; sourceName: string; url: string | null }> {
   if (scope.documentIds?.length) {
     const placeholders = scope.documentIds.map(() => "?").join(",");
-    const filters = buildFilters({ userId, sourceIds: scope.sourceIds }, "d");
+    const filters = buildFilters({ userId, sourceIds: scope.sourceIds, folder: scope.folder }, "d");
     const rows = db
       .prepare(
         `SELECT d.id, d.title, d.content, d.source_id, s.name AS source_name, d.url
@@ -433,7 +446,8 @@ export function retrieveForAi(
       source_name: string;
       url: string | null;
     }>;
-    return rows.sort((a, b) => scope.documentIds!.indexOf(a.id) - scope.documentIds!.indexOf(b.id)).slice(0, limit).map((row) => ({
+    const unique = new Set<string>();
+    return rows.filter(row => { const hash = contentFingerprint(row.content); if (!hash) return true; if (unique.has(hash)) return false; unique.add(hash); return true; }).sort((a, b) => scope.documentIds!.indexOf(a.id) - scope.documentIds!.indexOf(b.id)).slice(0, limit).map((row) => ({
       id: row.id,
       title: row.title,
       content: relevantExcerpt(row.content ?? "", documentExcerptQuery(query, row.title), 12_000),
@@ -443,12 +457,13 @@ export function retrieveForAi(
     }));
   }
 
-  const namedIds = namedDocumentIds(userId, query, scope.sourceIds, limit);
+  const namedIds = namedDocumentIds(userId, query, scope.sourceIds, limit, scope.folder);
   const response = searchDocuments({
     userId,
     query,
     mode: "all",
     sourceIds: scope.sourceIds,
+    folder: scope.folder,
     pageSize: limit,
   });
   let candidateIds = response.items.map((item) => item.id);
@@ -456,7 +471,7 @@ export function retrieveForAi(
     const terms = retrievalTerms(query);
     const looseMatch = terms.map((term) => buildMatchQuery(term)).filter(Boolean).join(" OR ");
     if (looseMatch) {
-      const filters = buildFilters({ userId, sourceIds: scope.sourceIds }, "d");
+      const filters = buildFilters({ userId, sourceIds: scope.sourceIds, folder: scope.folder }, "d");
       const rows = db.prepare(`SELECT d.id FROM documents_fts JOIN documents d ON d.id = documents_fts.doc_id
         WHERE documents_fts MATCH ? AND ${filters.sql}
         ORDER BY bm25(documents_fts, 0, 8, 1, 3) LIMIT ?`).all(looseMatch, ...filters.params, limit) as Array<{ id: string }>;
@@ -467,11 +482,4 @@ export function retrieveForAi(
   return ids.length ? retrieveForAi(userId, query, { ...scope, documentIds: ids }, limit) : [];
 }
 
-export function documentFolder(metadata: string | null, externalId: string, kind: string): string {
-  let meta: Record<string, unknown> = {};
-  try { meta = JSON.parse(metadata || "{}"); } catch { /* Older metadata may be invalid. */ }
-  const relative = typeof meta.relativePath === "string" ? meta.relativePath : kind === "file" ? externalId : "";
-  return relative ? relative.replace(/\\/g, "/").split("/").slice(0, -1).join("/")
-    : typeof meta.folder === "string" ? meta.folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") : "";
-}
 db.function("kb_folder", { deterministic: true }, (metadata, externalId, kind) => documentFolder(metadata as string | null, String(externalId), String(kind)));

@@ -8,7 +8,7 @@ import { useToast } from "../components/Toast";
 import Highlight from "../components/library/Highlight";
 import ReaderPane from "../components/library/ReaderPane";
 import { api } from "../lib/api";
-import { cleanExcerpt, loadSavedViews, savedQuery, storeSavedViews } from "../lib/library";
+import { cleanExcerpt, loadSavedViews, savedQuery, storeSavedViews, readPreference, writePreference } from "../lib/library";
 import type { SearchResponse, Source } from "../lib/types";
 import { formatDate, formatNumber, kindLabel } from "../lib/format";
 
@@ -21,15 +21,16 @@ export default function LibraryPage() {
   const rawMode = params.get("mode");
   const mode = rawMode === "title" || rawMode === "content" || rawMode === "attachment" ? rawMode : "all";
   const sourceId = params.get("sourceId") || "";
+  const deduplicate = params.get("deduplicate") === "true";
   const folder = params.get("folder") || "";
-  const [folders, setFolders] = useState<string[]>([]);
-  const [folderError, setFolderError] = useState("");
   const kind = params.get("kind") || "";
   const tag = params.get("tag") || "";
   const from = params.get("from") || "";
   const to = params.get("to") || "";
   const sort = params.get("sort") === "oldest" ? "oldest" : params.get("sort") === "newest" ? "newest" : q ? "relevance" : "newest";
-  const page = Math.max(1, Math.min(100000, Math.floor(Number(params.get("page")) || 1)));
+  const previousReading = readPreference<{ id?: string; page?: number }>(`kb:last-document:${user?.id}:${sourceId}:${folder}`, {});
+  const resumePage = !q && !kind && !tag && !from && !to && !params.has("doc") ? previousReading.page : 1;
+  const page = Math.max(1, Math.min(100000, Math.floor(Number(params.get("page")) || resumePage || 1)));
   const selectedId = params.get("doc");
   const [input, setInput] = useState(q);
   const [result, setResult] = useState<SearchResponse | null>(null);
@@ -45,7 +46,7 @@ export default function LibraryPage() {
   const listScroll = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
   const loadedKey = useRef("");
-  const queryKey = JSON.stringify([q, mode, sourceId, folder, kind, tag, from, to, sort, page, reload]);
+  const queryKey = JSON.stringify([q, mode, sourceId, folder, deduplicate, kind, tag, from, to, sort, page, reload]);
   const items = result?.items || [];
   const total = result?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -57,13 +58,6 @@ export default function LibraryPage() {
   useEffect(() => { setInput(q); }, [q]);
   useEffect(() => {
     let active = true;
-    setFolders([]); setFolderError("");
-    if (sourceId) void api.documents.folders(sourceId).then(value => { if (active) setFolders(value.folders); })
-      .catch(() => { if (active) setFolderError("目录加载失败，请刷新重试"); });
-    return () => { active = false; };
-  }, [sourceId, reload]);
-  useEffect(() => {
-    let active = true;
     void api.sources.list().then(value => { if (active) setSources(value.sources); }).catch(() => undefined);
     void api.tags.list().then(value => { if (active) setTags(value.tags); }).catch(() => undefined);
     return () => { active = false; };
@@ -71,7 +65,7 @@ export default function LibraryPage() {
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true); setError("");
-    const shared = { folder: folder || undefined, mode, sourceId: sourceId || undefined, kind: kind || undefined, tag: tag || undefined,
+    const shared = { deduplicate, folder: folder || undefined, mode, sourceId: sourceId || undefined, kind: kind || undefined, tag: tag || undefined,
       from: from || undefined, to: to || undefined, sort, page, pageSize: PAGE_SIZE };
     const promise = q ? api.search.query({ ...shared, q }) : api.documents.list(shared);
     void promise.then(value => {
@@ -86,11 +80,11 @@ export default function LibraryPage() {
       if (id === requestId.current) { setError(reason instanceof Error ? reason.message : "加载失败，请重试"); setResult(null); }
     }).finally(() => { if (id === requestId.current) setLoading(false); });
     return () => { requestId.current++; };
-  }, [q, mode, sourceId, folder, kind, tag, from, to, sort, page, reload, queryKey, setParams]);
-  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, folder, kind, tag, from, to, page]);
+  }, [q, mode, sourceId, folder, deduplicate, kind, tag, from, to, sort, page, reload, queryKey, setParams]);
+  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, folder, deduplicate, kind, tag, from, to, page]);
   useEffect(() => {
     if (!loading && loadedKey.current === queryKey && !selectedId && !dismissed && items.length && window.matchMedia("(min-width: 900px)").matches) {
-      setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", items[0].id); return next; }, { replace: true });
+      setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", items.find(item => item.id === previousReading.id)?.id || items[0].id); if (page > 1) next.set("page", String(page)); return next; }, { replace: true });
     }
   }, [loading, selectedId, dismissed, items, queryKey, setParams]);
   useEffect(() => {
@@ -100,15 +94,16 @@ export default function LibraryPage() {
   const patch = useCallback((changes: Record<string, string | null>) => {
     setDismissed(false);
     setParams(previous => {
-      const next = new URLSearchParams(previous); next.delete("page"); next.delete("doc");
+      const next = new URLSearchParams(previous); next.delete("page"); next.delete("doc"); next.delete("passage");
       if ("sourceId" in changes) next.delete("folder");
       for (const [key, value] of Object.entries(changes)) { if (value) next.set(key, value); else next.delete(key); }
       return next;
     });
   }, [setParams]);
   const selectDocument = (id: string) => {
+    writePreference(`kb:last-document:${user?.id}:${sourceId}:${folder}`, { id, page });
     setDismissed(false);
-    setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", id); return next; });
+    setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", id); next.delete("passage"); return next; });
   };
   const goToPage = (value: number) => {
     setDismissed(false);
@@ -136,6 +131,7 @@ export default function LibraryPage() {
           <button type="submit" className="library-search-submit" aria-label="执行搜索"><ChevronRight size={17} /></button>
         </form>
         <div className="library-quick-controls">
+          <label className="duplicate-toggle"><input type="checkbox" checked={deduplicate} onChange={event => patch({ deduplicate: event.target.checked ? "true" : null })} />折叠重复正文</label>
           <select aria-label="搜索范围" value={mode} onChange={event => patch({ mode: event.target.value === "all" ? null : event.target.value })}>
             <option value="all">全部内容</option><option value="title">仅标题</option><option value="content">正文</option><option value="attachment">附件</option>
           </select>
@@ -160,8 +156,10 @@ export default function LibraryPage() {
             setSaveOpen(false); toast("筛选已保存到左侧导航", "success");
           } catch { toast("浏览器暂时无法保存筛选", "error"); }
         }}><input aria-label="筛选名称" placeholder="为这个筛选起个名字" value={viewName} maxLength={40} onChange={event => setViewName(event.target.value)} /><button className="btn btn-primary btn-sm" disabled={!viewName.trim()}>保存</button><button type="button" className="icon-button" aria-label="取消保存筛选" onClick={() => setSaveOpen(false)}><X size={14} /></button></form>}
-        {sourceId && <FolderNavigation key={sourceId} folders={folders} selected={folder} error={folderError}
+        {sourceId && <FolderNavigation key={sourceId} sourceId={sourceId} userId={user?.id || ""} selected={folder} reload={reload}
           onSelect={value => patch({ folder: value })} />}
+        {sourceId && <Link className="folder-ask" to={"/chat?sourceId=" + encodeURIComponent(sourceId) + (folder ? "&folder=" + encodeURIComponent(folder) : "")}>对{folder ? "当前文件夹及子目录" : "当前来源"}提问 →</Link>}
+        {sourceId && <nav className="folder-breadcrumb" aria-label="当前目录"><button onClick={() => patch({ folder: null })}>{sources.find(source => source.id === sourceId)?.name || "来源"}</button>{folder.split("/").filter(Boolean).map((part, index, parts) => <span key={index}> / <button onClick={() => patch({ folder: parts.slice(0, index + 1).join("/") })}>{part}</button></span>)}</nav>}
         <div className="library-list-meta"><span>{loading ? "正在查找…" : formatNumber(total) + " 篇资料"}{q && <strong> · “{q}”</strong>}</span>
           <label><ArrowDownWideNarrow size={12} /><select aria-label="排序方式" value={sort} onChange={event => patch({ sort: event.target.value })}>
             {q && <option value="relevance">相关度</option>}<option value="newest">最新优先</option><option value="oldest">最早优先</option>
@@ -182,7 +180,7 @@ export default function LibraryPage() {
                 <span className="library-row-type">{isPdf ? "PDF" : kindLabel(item.kind)}</span><time>{formatDate(item.sourceCreatedAt || item.publishedAt || item.updatedAt)}</time></div>
               <h2><Highlight text={item.title} terms={result?.terms || []} /></h2>
               <p>{excerpt ? <Highlight text={excerpt} terms={result?.terms || []} /> : <span className="library-metadata-only">{item.kind === "file" ? "文件信息 · 暂无正文摘要" : "打开查看这条资料"}</span>}</p>
-              <div className="library-row-bottom"><span><i className={"source-dot " + (item.kind === "article" ? "violet" : "")} />{item.sourceName}</span>{item.tags[0] && <span className="row-tag">#{item.tags[0]}</span>}{selected && <span className="reading-indicator">阅读中</span>}</div>
+              <div className="library-row-bottom"><span><i className={"source-dot " + (item.kind === "article" ? "violet" : "")} />{item.sourceName}</span>{!!item.duplicateCount && <span className="row-tag">相同正文 {item.duplicateCount + 1} 份</span>}{item.tags[0] && <span className="row-tag">#{item.tags[0]}</span>}{selected && <span className="reading-indicator">阅读中</span>}</div>
             </button>;
           })}
       </div>
@@ -190,7 +188,7 @@ export default function LibraryPage() {
         <div><button aria-label="上一页" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}><ChevronLeft size={15} /></button><button aria-label="下一页" disabled={page >= totalPages || loading} onClick={() => goToPage(page + 1)}><ChevronRight size={15} /></button></div>
       </footer>
     </section>
-    <ReaderPane id={selectedId} onClose={() => {
+    <ReaderPane folder={folder} query={q} passage={params.get("passage") || ""} id={selectedId} onClose={() => {
       setDismissed(true); setParams(previous => { const next = new URLSearchParams(previous); next.delete("doc"); return next; }, { replace: true });
     }} onPrevious={currentIndex > 0 ? () => selectDocument(items[currentIndex - 1].id) : undefined}
       onNext={currentIndex >= 0 && currentIndex < items.length - 1 ? () => selectDocument(items[currentIndex + 1].id) : undefined}

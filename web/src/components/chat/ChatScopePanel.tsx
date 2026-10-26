@@ -30,13 +30,14 @@ const MODES: Array<{
 function normalize(scope: ChatScope): ChatScope {
   return {
     mode: scope.mode,
+    folder: scope.folder,
     sourceIds: [...scope.sourceIds],
     documentIds: [...scope.documentIds],
   };
 }
 
 function scopeKey(scope: ChatScope): string {
-  return [scope.mode, [...scope.sourceIds].sort().join(","), [...scope.documentIds].sort().join(",")].join(
+  return [scope.mode, scope.folder || "", [...scope.sourceIds].sort().join(","), [...scope.documentIds].sort().join(",")].join(
     "|",
   );
 }
@@ -76,6 +77,7 @@ export default function ChatScopePanel({
   const toggleSource = (id: string) => {
     setDraft((current) => ({
       ...current,
+      folder: null,
       sourceIds: current.sourceIds.includes(id)
         ? current.sourceIds.filter((sourceId) => sourceId !== id)
         : [...current.sourceIds, id],
@@ -112,6 +114,7 @@ export default function ChatScopePanel({
             <SlidersHorizontal size={14} className="text-[var(--accent-strong)]" />
             知识范围
           </div>
+          {draft.mode === "sources" && <label className="field">文件夹路径（可选，包含子目录）<input className="input" value={draft.folder || ""} disabled={draft.sourceIds.length !== 1 || saving} placeholder="先选择一个来源，再填写路径" onChange={event => setDraft(current => ({ ...current, folder: event.target.value || null }))} /></label>}
           <p className="mt-1 text-[11.5px] leading-5 text-[var(--muted-2)]">
             AI 只会读取你选择的内容，并在回答中附上引用。
           </p>

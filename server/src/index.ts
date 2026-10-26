@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { db } from "./db.js";
 import { apiCredentialFromRequest, userFromRequest } from "./auth.js";
 import { HttpError } from "./util.js";
+import backupRoutes from "./routes/backups.js";
 import authRoutes from "./routes/auth.js";
 import sourceRoutes from "./routes/sources.js";
 import documentRoutes from "./routes/documents.js";
@@ -86,6 +87,7 @@ app.get("/api/health", async () => {
 app.get("/api/openapi.json", async () => openapi);
 
 await app.register(authRoutes);
+await app.register(backupRoutes);
 await app.register(sourceRoutes);
 await app.register(documentRoutes);
 await app.register(searchRoutes);

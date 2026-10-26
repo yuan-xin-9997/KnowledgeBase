@@ -58,9 +58,14 @@ export function getJob(userId: string, jobId: string): SyncJobRow {
 export function startSync(
   userId: string,
   sourceId: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; retryJobId?: string } = {},
 ): SyncJobRow {
   const source = getSourceRow(userId, sourceId);
+  if (options.retryJobId) {
+    const prior = getJob(userId, options.retryJobId);
+    if (prior.source_id !== sourceId) throw new Error("重试任务与来源不匹配");
+    if (!db.prepare("SELECT 1 FROM sync_items WHERE job_id = ? AND action = 'error'").get(options.retryJobId)) throw new Error("该任务没有可重试的失败项");
+  }
   const connector = getConnector(source.type);
   if (!connector) throw new Error(`不支持的信息来源类型：${source.type}`);
   if (!source.enabled) throw new Error("该信息来源已停用");
@@ -107,7 +112,7 @@ export async function runJob(
   userId: string,
   sourceId: string,
   jobId: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; retryJobId?: string } = {},
 ): Promise<SyncStats> {
   const source = getSourceRow(userId, sourceId);
   const connector = getConnector(source.type);
@@ -142,6 +147,8 @@ export async function runJob(
     .all(sourceId) as Array<ExistingDoc & { external_id: string }>) {
     existing.set(row.external_id, row);
   }
+  const retryIds = options.retryJobId ? new Set((db.prepare("SELECT external_id FROM sync_items WHERE job_id = ? AND action = 'error'").all(options.retryJobId) as Array<{ external_id: string }>).map(row => row.external_id)) : null;
+  const record = db.prepare("INSERT OR REPLACE INTO sync_items(job_id,external_id,title,action,error) VALUES(?,?,?,?,?)");
   const seen = new Set<string>();
   let lastPersist = 0;
 
@@ -156,7 +163,7 @@ export async function runJob(
   const ctx: SyncContext = {
     sourceId,
     userId,
-    since: source.last_sync_at,
+    since: options.retryJobId ? null : source.last_sync_at,
     signal: controller.signal,
     onProgress: (progress) => {
       stats.processed = progress.processed;
@@ -180,10 +187,11 @@ export async function runJob(
       const item = next.value;
       stats.scanned += 1;
       seen.add(item.externalId);
+      if (retryIds && !retryIds.has(item.externalId)) continue;
       try {
         const prior = existing.get(item.externalId);
         const unchanged =
-          !options.force &&
+          !options.force && !retryIds &&
           prior &&
           !prior.deleted_at &&
           Boolean(prior.has_content) &&
@@ -193,6 +201,7 @@ export async function runJob(
           (item.size == null || prior.size == null || item.size === prior.size);
         if (unchanged) {
           stats.skipped += 1;
+          record.run(jobId, item.externalId, item.title, "skipped", null);
         } else {
           const loaded = await item.load();
           const content = (loaded.content ?? "").slice(0, 2_000_000);
@@ -251,9 +260,11 @@ export async function runJob(
           indexDocument(docId);
           if (prior) stats.updated += 1;
           else stats.created += 1;
+          record.run(jobId, item.externalId, title, prior ? "updated" : "created", null);
         }
       } catch (error) {
         stats.errors += 1;
+        record.run(jobId, item.externalId, item.title, "error", error instanceof Error ? error.message : String(error));
         ctx.log(
           `处理 ${item.title} 失败：${error instanceof Error ? error.message : String(error)}`,
         );
@@ -295,11 +306,15 @@ export async function runJob(
       persist();
     }
 
-    stats.complete = Boolean(summary.complete);
+    if (retryIds) for (const externalId of retryIds) if (!seen.has(externalId)) {
+      stats.errors++;
+      record.run(jobId, externalId, externalId, "error", "本次扫描未找到该项目，请检查来源或执行完整同步");
+    }
+    stats.complete = Boolean(summary.complete) && stats.errors === 0;
     stats.note = summary.note;
     stats.durationMs = Date.now() - started;
 
-    if (summary.complete) {
+    if (summary.complete && !retryIds) {
       const removeIndex = db.prepare("DELETE FROM documents_fts WHERE doc_id = ?");
       const softDelete = db.prepare(
         "UPDATE documents SET deleted_at = ?, updated_at = ? WHERE id = ?",
@@ -312,6 +327,7 @@ export async function runJob(
             softDelete.run(timestamp, timestamp, row.id);
             removeIndex.run(row.id);
             stats.deleted += 1;
+            record.run(jobId, externalId, externalId, "deleted", null);
             cachedToRemove.push(row.file_path);
           }
         }
@@ -324,7 +340,7 @@ export async function runJob(
     db.prepare(
       "UPDATE sync_jobs SET status = 'success', stats = ?, finished_at = ? WHERE id = ?",
     ).run(JSON.stringify(stats), nowIso(), jobId);
-    updateSourceStatus(sourceId, "success", null, nowIso());
+    updateSourceStatus(sourceId, "success", stats.errors ? `${stats.errors} 项处理失败，请在同步记录中重试` : null, retryIds ? undefined : nowIso());
   } catch (error) {
     stats.durationMs = Date.now() - started;
     const message = error instanceof Error ? error.message : String(error);

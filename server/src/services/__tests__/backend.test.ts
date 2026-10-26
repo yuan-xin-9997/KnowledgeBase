@@ -29,7 +29,7 @@ beforeAll(async () => {
   app.decorateRequest("user", null);
   app.addHook("onRequest", async (request) => { request.user = auth.userFromRequest(request); });
   for (const route of [
-    await import("../../routes/auth.js"), await import("../../routes/sources.js"),
+    await import("../../routes/backups.js"), await import("../../routes/auth.js"), await import("../../routes/sources.js"),
     await import("../../routes/documents.js"), await import("../../routes/providers.js"),
     await import("../../routes/chat.js"), await import("../../routes/search.js"),
   ]) {
@@ -143,6 +143,79 @@ describe("multi-user API boundaries", () => {
       db.prepare("DELETE FROM documents WHERE id = 'smb-image-doc'").run();
       db.prepare("DELETE FROM sources WHERE id = ?").run(id);
     } finally { factory.mockRestore(); }
+  });
+
+  it("paginates folder children, counts descendants and invalidates cached counts", async () => {
+    const ownerId = provider.user_id;
+    const now = new Date().toISOString();
+    const insert = db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)");
+    insert.run("folder-a", ownerId, sourceId, "parent/a/doc.md", "file", "FolderA", "目录测试甲", now, now);
+    insert.run("folder-b", ownerId, sourceId, "parent/b/doc.md", "file", "FolderB", "目录测试乙", now, now);
+    const url = `/api/documents/folders?sourceId=${sourceId}&parent=`;
+    const root = (await app.inject({ url, headers: { cookie: ownerCookie } })).json();
+    expect(root.items).toContainEqual({ path: "parent", count: 2, hasChildren: true });
+    const page = (await app.inject({ url: url + "parent&limit=1&offset=1", headers: { cookie: ownerCookie } })).json();
+    expect(page.total).toBe(2);
+    const trail = (await app.inject({ url: url + "&reveal=parent/b", headers: { cookie: ownerCookie } })).json();
+    expect(trail.items.map((item: { path: string }) => item.path)).toEqual(["parent", "parent/b"]);
+    expect(page.items).toEqual([{ path: "parent/b", count: 1, hasChildren: false }]);
+    db.prepare("UPDATE documents SET deleted_at = ? WHERE id = 'folder-b'").run(now);
+    expect((await app.inject({ url, headers: { cookie: ownerCookie } })).json().items).toContainEqual({ path: "parent", count: 1, hasChildren: true });
+    expect((await app.inject({ url, headers: { cookie: secondCookie } })).json().items).toEqual([]);
+    db.prepare("DELETE FROM documents WHERE id IN ('folder-a','folder-b')").run();
+  });
+
+  it("keeps AI folder constraints on exact-title and fallback retrieval and returns passage citations", () => {
+    const now = new Date().toISOString();
+    const insert = db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)");
+    insert.run("scope-a", provider.user_id, sourceId, "allowed/doc.md", "file", "目录问答", "专属关键词。目录问答只允许读取这里。", now, now);
+    insert.run("scope-b", provider.user_id, sourceId, "allowed2/doc.md", "file", "目录问答", "专属关键词。不能泄露的其他目录。", now, now);
+    for (const id of ["scope-a", "scope-b"]) search.indexDocument(id);
+    for (const query of ["《目录问答》", "专属关键词", "请用 专属关键词 做个总结"]) {
+      const context = rag.retrieveContext(provider.user_id, query, { mode: "sources", sourceIds: [sourceId], documentIds: [], folder: "allowed" });
+      expect(context.citations.map(item => item.documentId)).toEqual(["scope-a"]);
+      expect(context.citations[0].excerpt).toContain("只允许读取这里");
+      expect(context.block).not.toContain("不能泄露");
+    }
+    expect(rag.normalizeScope({ folder: null }, { mode: "sources", sourceIds: [sourceId], documentIds: [], folder: "allowed" }).folder).toBeUndefined();
+    for (const id of ["scope-a", "scope-b"]) { search.removeFromIndex(id); db.prepare("DELETE FROM documents WHERE id = ?").run(id); }
+  });
+
+  it("identifies identical document bodies without exposing other users or merging files", async () => {
+    const now = new Date().toISOString();
+    const content = "相同正文用于重复检测。".repeat(12);
+    const insert = db.prepare("INSERT INTO documents(id,user_id,source_id,external_id,kind,title,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)");
+    for (const id of ["duplicate-a", "duplicate-b"]) { insert.run(id, provider.user_id, sourceId, id, "article", "重复示例", content, now, now); search.indexDocument(id); }
+    const detail = (await app.inject({ url: "/api/documents/duplicate-a", headers: { cookie: ownerCookie } })).json().document;
+    expect(detail.duplicates.map((item: { id: string }) => item.id)).toEqual(["duplicate-b"]);
+    expect(search.searchDocuments({ userId: provider.user_id, query: "重复示例" }).items[0].duplicateCount).toBe(1);
+    expect(search.searchDocuments({ userId: provider.user_id, query: "重复示例", deduplicate: true }).total).toBe(1);
+    expect(search.searchDocuments({ userId: provider.user_id, query: "重复示例", mode: "title", deduplicate: true }).total).toBe(1);
+    expect(search.retrieveForAi(provider.user_id, "重复示例", { documentIds: ["duplicate-a", "duplicate-b"] })).toHaveLength(1);
+    expect((await app.inject({ url: "/api/documents/duplicate-a", headers: { cookie: secondCookie } })).statusCode).toBe(404);
+    for (const id of ["duplicate-a", "duplicate-b"]) { search.removeFromIndex(id); db.prepare("DELETE FROM documents WHERE id = ?").run(id); }
+  });
+
+  it("restricts backups to admins and restores a validated snapshot into an isolated directory", async () => {
+    expect((await app.inject("/api/backups")).statusCode).toBe(401);
+    expect((await app.inject({ url: "/api/backups", headers: { cookie: secondCookie } })).statusCode).toBe(403);
+    const result = await app.inject({ method: "POST", url: "/api/backups", headers: { cookie: ownerCookie } });
+    expect(result.statusCode).toBe(200);
+    const { id, verification } = result.json();
+    expect(verification.ok).toBe(true);
+    expect(verification.documents).toBe(2);
+    const listing = (await app.inject({ url: "/api/backups", headers: { cookie: ownerCookie } })).json();
+    expect(listing.items[0].verification.ok).toBe(true);
+    const { restoreSnapshot } = await import("../backup-files.js");
+    const backup = path.join(tempDir, "backups", id);
+    const restored = path.join(tempDir, "restored");
+    expect((await restoreSnapshot(backup, restored)).documents).toBe(2);
+    await expect(restoreSnapshot(backup, restored)).rejects.toThrow();
+    fs.appendFileSync(path.join(backup, "knowledge.db"), "tampered");
+    const invalid = await app.inject({ method: "POST", url: `/api/backups/${id}/verify`, headers: { cookie: ownerCookie } });
+    expect(invalid.statusCode).toBe(500);
+    expect(invalid.json().error).toContain("校验和");
+    expect((db.prepare("SELECT COUNT(*) n FROM documents").get() as { n: number }).n).toBe(2);
   });
 
   it("denies non-admin local file creation and arbitrary directory tests", async () => {

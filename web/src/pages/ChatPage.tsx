@@ -37,6 +37,8 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const folderParam = searchParams.get("folder");
+  const sourceParam = searchParams.get("sourceId");
   const docParam = searchParams.get("doc");
   const qParam = searchParams.get("q");
 
@@ -229,17 +231,17 @@ export default function ChatPage() {
 
   // Allow a deep link to run again after navigating back to a plain /chat.
   useEffect(() => {
-    if (!docParam && !qParam) bootstrapKeyRef.current = null;
-  }, [docParam, qParam]);
+    if (!docParam && !qParam && !sourceParam) bootstrapKeyRef.current = null;
+  }, [docParam, qParam, sourceParam, folderParam]);
 
   // `?doc=` / `?q=` deep links: create a session exactly once per link.
   useEffect(() => {
     if (id || providersLoading) return;
-    const key = docParam ? `doc:${docParam}` : qParam ? `q:${qParam}` : null;
+    const key = sourceParam ? `folder:${sourceParam}:${folderParam || ""}` : docParam ? `doc:${docParam}` : qParam ? `q:${qParam}` : null;
     if (!key || bootstrapKeyRef.current === key) return;
     bootstrapKeyRef.current = key;
 
-    const scope: ChatScope = docParam
+    const scope: ChatScope = sourceParam ? { mode: "sources", sourceIds: [sourceParam], documentIds: [], ...(folderParam ? { folder: folderParam } : {}) } : docParam
       ? { mode: "documents", sourceIds: [], documentIds: [docParam] }
       : { ...EMPTY_SCOPE };
 
@@ -273,7 +275,7 @@ export default function ChatPage() {
       });
   }, [
     id,
-    docParam,
+    docParam, sourceParam, folderParam,
     qParam,
     providersLoading,
     ensureDocMeta,
@@ -324,6 +326,7 @@ export default function ChatPage() {
     if (scope.mode === "all") return "全部知识库";
     if (scope.mode === "none") return "不使用知识库";
     if (scope.mode === "sources") {
+      if (scope.folder) return "文件夹：" + scope.folder;
       const names = scope.sourceIds
         .map((sourceId) => sources.find((source) => source.id === sourceId)?.name)
         .filter((name): name is string => Boolean(name));

@@ -33,16 +33,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-function qs(params: Record<string, string | number | undefined | null>): string {
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") search.set(key, String(value));
+    if (value !== undefined && value !== null && (value !== "" || key === "parent")) search.set(key, String(value));
   }
   const result = search.toString();
   return result ? `?${result}` : "";
 }
 
 export const api = {
+  backups: {
+    list: () => request<import("./types").BackupStatus>("/api/backups"),
+    create: () => request("/api/backups", { method: "POST" }),
+    verify: (id: string) => request(`/api/backups/${encodeURIComponent(id)}/verify`, { method: "POST" }),
+  },
   auth: {
     me: () => request<{ user: import("./types").User }>("/api/auth/me"),
     login: (account: string, password: string) =>
@@ -105,10 +110,10 @@ export const api = {
         `/api/sources/${id}/test`,
         { method: "POST" },
       ),
-    sync: (id: string, force = false) =>
+    sync: (id: string, force = false, retryJobId?: string) =>
       request<{ job: { id: string; status: string; createdAt: string } }>(
         `/api/sources/${id}/sync`,
-        { method: "POST", body: JSON.stringify({ force }) },
+        { method: "POST", body: JSON.stringify({ force, retryJobId }) },
       ),
     cancel: (id: string) =>
       request<{ ok: boolean }>(`/api/sources/${id}/cancel`, { method: "POST" }),
@@ -116,16 +121,18 @@ export const api = {
       request<{ jobs: import("./types").SyncJob[] }>(`/api/sources/${id}/jobs`),
   },
   jobs: {
+    items: (id: string, offset = 0, action?: string) => request<{ items: import("./types").SyncItem[]; total: number }>(`/api/sync-jobs/${id}/items${qs({ offset, action })}`),
     get: (id: string) => request<{ job: import("./types").SyncJob }>(`/api/sync-jobs/${id}`),
     list: () => request<{ jobs: import("./types").SyncJob[] }>("/api/sync-jobs"),
   },
   documents: {
-    folders: (sourceId: string) => request<{ folders: string[] }>(`/api/documents/folders${qs({ sourceId })}`),
+    folders: (sourceId: string, parent?: string, offset = 0, reveal?: string) => request<{ folders: string[]; items: import("./types").FolderEntry[]; total: number }>(`/api/documents/folders${qs({ sourceId, parent, offset, reveal })}`),
     list: (params: {
       q?: string;
       mode?: string;
       sourceId?: string;
       folder?: string;
+      deduplicate?: boolean;
       kind?: string;
       tag?: string;
       from?: string;
@@ -157,6 +164,7 @@ export const api = {
       mode?: string;
       sourceId?: string;
       folder?: string;
+      deduplicate?: boolean;
       kind?: string;
       tag?: string;
       from?: string;

@@ -1,3 +1,4 @@
+import { citationLink } from "../../lib/library";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -6,7 +7,7 @@ import { ArrowUp, Bot, ExternalLink, Loader2, Square, X } from "lucide-react";
 import { api, streamChat } from "../../lib/api";
 import type { ChatMessage, ChatScope, DocumentDetail, Provider } from "../../lib/types";
 
-export default function ReaderAssistant({ document, onClose }: { document: DocumentDetail; onClose: () => void }) {
+export default function ReaderAssistant({ document, onClose, folder = "" }: { document: DocumentDetail; folder?: string; onClose: () => void }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -45,9 +46,10 @@ export default function ReaderAssistant({ document, onClose }: { document: Docum
       let id = sessionId;
       if (!id) {
         const chatScope: ChatScope = {
-          mode: scope === "document" ? "documents" : scope === "source" ? "sources" : scope === "all" ? "all" : "none",
-          sourceIds: scope === "source" ? [document.sourceId] : [],
+          mode: scope === "document" ? "documents" : (scope === "source" || scope === "folder") ? "sources" : scope === "all" ? "all" : "none",
+          sourceIds: (scope === "source" || scope === "folder") ? [document.sourceId] : [],
           documentIds: scope === "document" ? [document.id] : [],
+          ...(scope === "folder" ? { folder } : {}),
         };
         const created = await api.chat.create({ title: document.title.slice(0, 60), providerId, scope: chatScope });
         if (!alive.current || currentRequest !== requestNumber.current) return;
@@ -71,9 +73,9 @@ export default function ReaderAssistant({ document, onClose }: { document: Docum
     <header><span><Bot size={17} />阅读助手</span><button aria-label="关闭阅读助手" onClick={onClose}><X size={17} /></button></header>
     <div className="assistant-context">
       <label>知识范围<select aria-label="助手知识范围" disabled={busy} value={scope} onChange={event => { setScope(event.target.value); reset(); }}>
-        <option value="document">当前文档</option><option value="source">当前来源</option><option value="all">全部知识库</option><option value="none">不使用知识库</option>
+        <option value="document">当前文档</option><option value="source">当前来源</option>{folder && <option value="folder">当前文件夹（含子目录）</option>}<option value="all">全部知识库</option><option value="none">不使用知识库</option>
       </select></label>
-      <p title={scope === "source" ? document.sourceName : document.title}>{scope === "document" ? document.title : scope === "source" ? document.sourceName : scope === "all" ? "检索你已连接的所有来源" : "仅使用模型的通用知识"}</p>
+      <p title={scope === "source" ? document.sourceName : document.title}>{scope === "folder" ? folder : scope === "document" ? document.title : scope === "source" ? document.sourceName : scope === "all" ? "检索你已连接的所有来源" : "仅使用模型的通用知识"}</p>
       {providers.length > 0 && <select aria-label="助手模型" disabled={busy} value={providerId} onChange={event => { setProviderId(event.target.value); reset(); }}>
         {providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
       </select>}
@@ -88,7 +90,7 @@ export default function ReaderAssistant({ document, onClose }: { document: Docum
           <span className="assistant-role">{message.role === "user" ? "你" : "阅读助手"}</span>
           {message.content ? <div className="prose-kb"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
             : busy ? <span className="assistant-thinking"><Loader2 size={13} className="spin" />正在阅读资料…</span> : <span className="assistant-note">{stopped ? "已停止生成" : "未生成内容"}</span>}
-          {message.role === "assistant" && (message.citations?.length || 0) > 0 && <div className="assistant-citations">{(message.citations || []).map(citation => <Link key={citation.index} to={"/library?doc=" + encodeURIComponent(citation.documentId)} title={citation.title}>[{citation.index}] {citation.title}</Link>)}</div>}
+          {message.role === "assistant" && (message.citations?.length || 0) > 0 && <div className="assistant-citations">{(message.citations || []).map(citation => <Link key={citation.index} to={citationLink(citation)} title={citation.title}>[{citation.index}] {citation.title}</Link>)}</div>}
         </div>)}
       {error && providers.length > 0 && <p className="assistant-error" role="alert">{error}</p>}
       <div ref={end} />

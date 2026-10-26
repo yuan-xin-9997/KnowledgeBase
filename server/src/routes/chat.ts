@@ -23,6 +23,7 @@ import {
 } from "../services/rag.js";
 
 const scopeSchema = z.object({
+  folder: z.string().max(4096).nullable().optional(),
   mode: z.enum(["all", "sources", "documents", "none"]).optional(),
   sourceIds: z.array(z.string().trim().min(1)).max(100).optional(),
   documentIds: z.array(z.string().trim().min(1)).max(100).optional(),

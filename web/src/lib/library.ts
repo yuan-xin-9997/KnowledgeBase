@@ -26,7 +26,7 @@ export function externalUrl(value: string | null | undefined): string | null {
 
 export function savedQuery(params: URLSearchParams): string {
   const copy = new URLSearchParams();
-  for (const key of ["q", "mode", "sourceId", "folder", "kind", "tag", "from", "to", "sort"]) {
+  for (const key of ["q", "mode", "sourceId", "folder", "deduplicate", "kind", "tag", "from", "to", "sort"]) {
     const value = params.get(key);
     if (value) copy.set(key, value);
   }
@@ -65,4 +65,15 @@ export function visibleFolders(folders: string[], collapsed: ReadonlySet<string>
     const parts = value.split("/");
     return !parts.slice(0, -1).some((_, index) => collapsed.has(parts.slice(0, index + 1).join("/")));
   }).map(path => ({ path, hasChildren: parents.has(path), depth: path.split("/").length - 1 }));
+}
+
+export function readPreference<T>(key: string, fallback: T): T {
+  try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
+}
+export function writePreference(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Reading remains available when storage is full or disabled. */ }
+}
+export function folderStateKey(userId: string, sourceId: string): string { return `kb:folders:${userId}:${sourceId}`; }
+export function citationLink(citation: { documentId: string; excerpt?: string }): string {
+  return `/library?doc=${encodeURIComponent(citation.documentId)}` + (citation.excerpt ? `&passage=${encodeURIComponent(citation.excerpt)}` : "");
 }

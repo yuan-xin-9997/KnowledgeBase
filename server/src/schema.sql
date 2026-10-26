@@ -184,3 +184,26 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS folder_cache_state (source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS folder_counts (
+ source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+ path TEXT NOT NULL, parent TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(source_id,path)
+);
+CREATE INDEX IF NOT EXISTS idx_folder_parent ON folder_counts(source_id,parent);
+CREATE TRIGGER IF NOT EXISTS folders_insert AFTER INSERT ON documents BEGIN
+ INSERT INTO folder_cache_state VALUES(NEW.source_id) ON CONFLICT DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS folders_update AFTER UPDATE ON documents BEGIN
+ INSERT INTO folder_cache_state VALUES(NEW.source_id) ON CONFLICT DO NOTHING;
+END;
+CREATE TRIGGER IF NOT EXISTS folders_delete AFTER DELETE ON documents BEGIN
+ INSERT INTO folder_cache_state SELECT OLD.source_id WHERE EXISTS(SELECT 1 FROM sources WHERE id=OLD.source_id) ON CONFLICT DO NOTHING;
+END;
+CREATE TABLE IF NOT EXISTS sync_items (
+ job_id TEXT NOT NULL REFERENCES sync_jobs(id) ON DELETE CASCADE,
+ external_id TEXT NOT NULL, title TEXT NOT NULL, action TEXT NOT NULL, error TEXT,
+ PRIMARY KEY(job_id, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS folder_cache_ready (source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE);

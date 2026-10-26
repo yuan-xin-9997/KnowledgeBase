@@ -136,8 +136,8 @@ export default async function sourceRoutes(app: FastifyInstance): Promise<void> 
         reply.code(409).send({ error: "该信息来源正在同步中" });
         return;
       }
-      const body = parseBody(z.object({ force: z.boolean().optional() }).default({}), request);
-      const job = startSync(user.id, id, { force: body.force });
+      const body = parseBody(z.object({ force: z.boolean().optional(), retryJobId: z.string().optional() }).default({}), request);
+      const job = startSync(user.id, id, { force: body.force, retryJobId: body.retryJobId });
       reply.code(202).send({
         job: {
           id: job.id,
@@ -200,6 +200,20 @@ export default async function sourceRoutes(app: FastifyInstance): Promise<void> 
     } catch (error) {
       sendError(reply, error);
     }
+  });
+
+  app.get("/api/sync-jobs/:id/items", async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return;
+    try {
+      const { id } = request.params as { id: string };
+      getJob(user.id, id);
+      const query = parseQuery(z.object({ action: z.enum(["created", "updated", "skipped", "deleted", "error"]).optional(), offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(100).default(50) }), request);
+      const filter = query.action ? "job_id = ? AND action = ?" : "job_id = ?";
+      const params = query.action ? [id, query.action] : [id];
+      return { items: db.prepare(`SELECT external_id AS externalId, title, action, error FROM sync_items WHERE ${filter} ORDER BY external_id LIMIT ? OFFSET ?`).all(...params, query.limit, query.offset),
+        total: (db.prepare(`SELECT COUNT(*) n FROM sync_items WHERE ${filter}`).get(...params) as { n: number }).n };
+    } catch (error) { sendError(reply, error); }
   });
 
   app.get("/api/sync-jobs/:id", async (request, reply) => {

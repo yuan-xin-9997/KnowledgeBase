@@ -1,17 +1,16 @@
+import ReadingBody from "./ReadingBody";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ArrowLeft, ArrowUpRight, Bot, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Download,
   ExternalLink, FileText, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
 import { api } from "../../lib/api";
 import type { DocumentDetail } from "../../lib/types";
-import { externalUrl, documentImageUrl } from "../../lib/library";
+import { externalUrl } from "../../lib/library";
 import { formatBytes, formatDate, sourceTypeLabel } from "../../lib/format";
 import ReaderAssistant from "./ReaderAssistant";
 
-export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag }: {
-  id: string | null; onClose: () => void; onPrevious?: () => void; onNext?: () => void; onTag: (tag: string) => void;
+export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag, folder = "", query = "", passage = "" }: {
+  folder?: string; query?: string; passage?: string; id: string | null; onClose: () => void; onPrevious?: () => void; onNext?: () => void; onTag: (tag: string) => void;
 }) {
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,11 +18,10 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag }: {
   const [retry, setRetry] = useState(0);
   const [assistant, setAssistant] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [limit, setLimit] = useState(60000);
   const scroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let active = true;
-    setDoc(null); setError(""); setAssistant(false); setShowInfo(false); setLimit(60000);
+    setDoc(null); setError(""); setAssistant(false); setShowInfo(false);
     if (!id) { setLoading(false); return; }
     setLoading(true);
     void api.documents.get(id).then(value => { if (active) { setDoc(value.document); scroll.current?.scrollTo(0, 0); } })
@@ -34,11 +32,7 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag }: {
   if (!id) return <section className="reader-pane reader-placeholder"><span className="reader-placeholder-icon"><BookPlaceholder /></span><h2>留一段时间，读点有价值的内容</h2><p>从左侧选择一篇文章或专业文档。<br />在这里阅读、查找原文，也可以让 AI 帮你理解。</p><div><kbd>↑</kbd><kbd>↓</kbd><span>浏览列表</span></div></section>;
   const original = externalUrl(doc?.url);
   const fullContent = doc?.content || "";
-  let content = fullContent.slice(0, limit);
-  if (doc?.contentFormat === "markdown") {
-    const first = content.split("\n")[0].replace(/^#+\s*/, "").trim();
-    if (first === doc.title.trim()) content = content.slice(content.indexOf("\n") + 1).trimStart();
-  }
+  const content = fullContent;
   return <section className={"reader-pane " + (assistant ? "with-assistant" : "")} aria-label="文档阅读预览">
     <div className="reader-toolbar">
       <div className="reader-toolbar-nav">
@@ -70,17 +64,11 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag }: {
             {doc.fileAvailable && <a href={api.documents.fileUrl(doc.id)} target="_blank" rel="noopener noreferrer"><Download size={13} />打开原文件<ArrowUpRight size={12} /></a>}
             {doc.tags.map(tag => <button key={tag} className="reading-tag" onClick={() => onTag(tag)}>#{tag}</button>)}
           </div>
-          {content.trim() ? <div className={"prose-kb reader-content " + (doc.contentFormat === "markdown" ? "" : "reader-plain")}>
-            {doc.contentFormat === "markdown" ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-              a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
-              img: ({ src, alt }) => <img src={documentImageUrl(src, doc)} alt={alt || ""} loading="lazy" referrerPolicy="no-referrer" />,
-            }}>{content}</ReactMarkdown> : content}
-          </div> : <div className="reader-no-body"><FileText size={27} /><h3>{doc.kind === "note" ? "这条笔记没有额外正文" : "暂时只有文件信息"}</h3><p>{doc.kind === "note" ? "笔记标题已完整显示在上方。来源没有提供其他可阅读的文本内容。" : doc.metadata?.sizeExceeded ? "文件超过来源的大小上限，尚未提取正文。可以在来源设置中调整上限后重新同步。" : "这个格式尚未提取出可阅读的正文。你可以打开原文件，或到信息来源中重新同步。"}</p><Link to="/sources" className="btn btn-ghost btn-sm">查看来源设置</Link></div>}
-          {fullContent.length > limit && <button className="reading-load-more" onClick={() => setLimit(value => value + 60000)}>继续载入正文<span>已显示 {limit.toLocaleString("zh-CN")} / {fullContent.length.toLocaleString("zh-CN")} 字符</span><ChevronDown size={16} /></button>}
-          {content.trim() && fullContent.length <= limit && <div className="reading-end"><span />已读至文末<span /></div>}
+          {(doc.duplicates?.length || 0) > 0 && <details className="reading-duplicates"><summary>发现 {doc.duplicates!.length} 份相同正文</summary>{doc.duplicates!.map(item => <Link key={item.id} to={"/library?doc=" + item.id}>{item.sourceName} · {item.title}</Link>)}</details>}
+          {content.trim() ? <ReadingBody key={doc.id} document={doc} query={query} passage={passage} scrollRoot={scroll} /> : <div className="reader-no-body"><FileText size={27} /><h3>{doc.kind === "note" ? "这条笔记没有额外正文" : "暂时只有文件信息"}</h3><p>{doc.kind === "note" ? "笔记标题已完整显示在上方。来源没有提供其他可阅读的文本内容。" : doc.metadata?.sizeExceeded ? "文件超过来源的大小上限，尚未提取正文。可以在来源设置中调整上限后重新同步。" : "这个格式尚未提取出可阅读的正文。你可以打开原文件，或到信息来源中重新同步。"}</p><Link to="/sources" className="btn btn-ghost btn-sm">查看来源设置</Link></div>}
         </article>
       </div>}
-    {assistant && doc && <ReaderAssistant key={doc.id} document={doc} onClose={() => setAssistant(false)} />}
+    {assistant && doc && <ReaderAssistant key={doc.id} document={doc} folder={folder} onClose={() => setAssistant(false)} />}
   </section>;
 }
 

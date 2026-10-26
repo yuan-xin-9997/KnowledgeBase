@@ -1,3 +1,4 @@
+import { contentFingerprint } from "./services/document-meta.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,20 @@ if (!userColumns.some((column) => column.name === "active")) {
   db.exec("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
 }
 
+db.exec("CREATE INDEX IF NOT EXISTS idx_documents_fingerprint ON documents(user_id, file_hash) WHERE deleted_at IS NULL");
+if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'fingerprint_v1'").get()) {
+  const update = db.prepare("UPDATE documents SET file_hash = ? WHERE id = ?");
+  db.transaction(() => {
+    let lastId = "";
+    while (true) {
+      const rows = db.prepare("SELECT id, content FROM documents WHERE id > ? ORDER BY id LIMIT 500").all(lastId) as Array<{ id: string; content: string | null }>;
+      if (!rows.length) break;
+      for (const row of rows) update.run(contentFingerprint(row.content), row.id);
+      lastId = rows[rows.length - 1].id;
+    }
+    db.prepare("INSERT INTO app_settings(key,value) VALUES('fingerprint_v1','1')").run();
+  })();
+}
 export { db };
 
 export function nowIso(): string {

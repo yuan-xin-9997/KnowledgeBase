@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews, documentImageUrl, visibleFolders } from "../web/src/lib/library.ts";
+import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews, documentImageUrl, visibleFolders, readPreference, writePreference, folderStateKey, citationLink } from "../web/src/lib/library.ts";
 
 const preview = cleanExcerpt("# 阅读资料\n[mp.weixin.qq.com](https://example.com/" + "x".repeat(500) + ")\n**可读的正文**", "阅读资料");
 assert.equal(preview, "可读的正文");
@@ -50,3 +50,29 @@ assert.equal(visibleFolders(folders, new Set())[2].hasChildren, false);
 assert.deepEqual(visibleFolders([], new Set()), []);
 
 assert.equal(visibleFolders(["ab", "abc"], new Set())[0].hasChildren, false);
+
+const prefs = new Map();
+globalThis.localStorage = { getItem: key => prefs.get(key) ?? null, setItem: (key, value) => prefs.set(key, value) };
+writePreference(folderStateKey("one", "s"), { paths: ["a"], all: false });
+assert.deepEqual(readPreference(folderStateKey("one", "s"), {}), { paths: ["a"], all: false });
+assert.deepEqual(readPreference(folderStateKey("two", "s"), {}), {});
+globalThis.localStorage = { getItem: () => { throw new Error("disabled"); }, setItem: () => { throw new Error("full"); } };
+assert.deepEqual(readPreference("x", {}), {});
+assert.doesNotThrow(() => writePreference("x", {}));
+delete globalThis.localStorage;
+const { documentOutline, passageOffset } = await import("../web/src/lib/reading.ts");
+const markdown = "# 标题\n正文\n```md\n## 代码里的标题\n```\n## 正文小节\n片段定位";
+assert.deepEqual(documentOutline(markdown).map(item => item.title), ["标题", "正文小节"]);
+assert.equal(markdown.slice(documentOutline(markdown)[1].offset).startsWith("## 正文小节"), true);
+assert.equal(passageOffset(markdown, "片段定位"), markdown.indexOf("片段定位"));
+assert.equal(passageOffset(markdown, "不存在"), -1);
+assert.equal(citationLink({ documentId: "d", excerpt: "引用正文" }), "/library?doc=d&passage=" + encodeURIComponent("引用正文"));
+
+const originalFetch = globalThis.fetch;
+let folderRequest;
+globalThis.fetch = async url => { folderRequest = url; return new Response(JSON.stringify({ folders: [], items: [], total: 0 })); };
+const { api } = await import("../web/src/lib/api.ts");
+await api.documents.folders("source", "");
+assert.equal(new URL("http://test" + folderRequest).searchParams.has("parent"), true);
+assert.equal(new URL("http://test" + folderRequest).searchParams.get("parent"), "");
+globalThis.fetch = originalFetch;

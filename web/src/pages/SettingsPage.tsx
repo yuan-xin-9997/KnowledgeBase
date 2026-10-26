@@ -1,3 +1,4 @@
+import BackupSettings from "../components/BackupSettings";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Cpu, Plus, Pencil, Trash2, Loader2, CheckCircle2 } from "lucide-react";
@@ -86,6 +87,7 @@ export default function SettingsPage() {
             <div className="mt-5 flex flex-wrap gap-2"><button disabled={testing !== null} className="btn btn-ghost btn-sm" onClick={() => void test(provider)}>{testing === provider.id ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />}测试连接</button><button className="btn btn-ghost btn-sm" onClick={() => edit(provider)}><Pencil size={13} />编辑</button><button className="btn btn-ghost btn-sm" onClick={() => void remove(provider)}><Trash2 size={13} />删除</button><Link to="/chat" className="btn btn-accent btn-sm">开始对话</Link></div>
           </div>)}
         </div>}
+        <BackupSettings />
         <AccountSettings />
       </div>
     </div>

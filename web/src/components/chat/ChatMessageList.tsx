@@ -1,3 +1,4 @@
+import { citationLink } from "../../lib/library";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -46,7 +47,7 @@ function splitCitationText(value: string, map: Map<number, string>): MdNode[] | 
       }
       nodes.push({
         type: "link",
-        url: `/library/${documentId}`,
+        url: documentId,
         children: [{ type: "text", value: match[0] }],
       });
       cursor = match.index + match[0].length;
@@ -60,7 +61,7 @@ function splitCitationText(value: string, map: Map<number, string>): MdNode[] | 
 
 /** Turns `[1]` references into in-app links pointing at the cited document. */
 function createCitationPlugin(citations: Citation[]): Plugin {
-  const map = new Map(citations.map((citation) => [citation.index, citation.documentId]));
+  const map = new Map(citations.map((citation) => [citation.index, citationLink(citation)]));
 
   const walk = (node: MdNode): void => {
     if (!node.children) return;
@@ -93,7 +94,7 @@ function createCitationPlugin(citations: Citation[]): Plugin {
 
 const markdownComponents: Components = {
   a({ href, children }) {
-    if (href && href.startsWith("/library/")) {
+    if (href && (href.startsWith("/library/") || href.startsWith("/library?"))) {
       return (
         <Link
           to={href}
@@ -131,7 +132,7 @@ function CitationCards({ citations }: { citations: Citation[] }) {
           </span>
           <div className="min-w-0 flex-1">
             <Link
-              to={`/library/${citation.documentId}`}
+              to={citationLink(citation)}
               className="block truncate text-[12.5px] font-medium leading-5 hover:text-[var(--accent-strong)]"
             >
               {citation.title}

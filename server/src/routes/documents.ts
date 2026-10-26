@@ -1,8 +1,8 @@
+import { sourceFolders } from "../services/folders.js";
 import { markdownImages, sourceDocumentPath } from "../services/document-images.js";
 import { getSourceRow, sourceConfig } from "../services/sources.js";
 import { parseLocalConfig } from "../connectors/local.js";
 import { createClient, parseSmbConfig } from "../connectors/smb.js";
-import { documentFolder } from "../services/search.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
@@ -19,6 +19,7 @@ const listSchema = z.object({
   mode: z.enum(["all", "title", "content", "attachment"]).optional(),
   sourceId: z.string().optional(),
   folder: z.string().max(4096).optional(),
+  deduplicate: z.enum(["true", "false"]).transform(value => value === "true").optional(),
   kind: z.string().optional(),
   tag: z.string().optional(),
   from: z.string().optional(),
@@ -48,6 +49,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         mode: query.mode,
         sourceId: query.sourceId,
         folder: query.folder,
+        deduplicate: query.deduplicate,
         kind: query.kind,
         tag: query.tag,
         from: searchDate(query.from),
@@ -65,15 +67,8 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
   app.get("/api/documents/folders", async (request, reply) => {
     const user = requireUser(request, reply);
     if (!user) return;
-    const { sourceId } = parseQuery(z.object({ sourceId: z.string() }), request);
-    const rows = db.prepare("SELECT metadata, external_id, kind FROM documents WHERE user_id = ? AND source_id = ? AND deleted_at IS NULL")
-      .all(user.id, sourceId) as Array<{ metadata: string | null; external_id: string; kind: string }>;
-    const folders = new Set<string>();
-    for (const row of rows) {
-      const parts = documentFolder(row.metadata, row.external_id, row.kind).split("/").filter(Boolean);
-      for (let i = 1; i <= parts.length; i++) folders.add(parts.slice(0, i).join("/"));
-    }
-    return { folders: [...folders].sort((a, b) => a.localeCompare(b)) };
+    const query = parseQuery(z.object({ sourceId: z.string(), parent: z.string().max(4096).optional(), reveal: z.string().max(4096).optional(), offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(200) }), request);
+    return sourceFolders(user.id, query.sourceId, query.parent, query.offset, query.limit, query.reveal);
   });
 
   app.get("/api/documents/:id/image", async (request, reply) => {
@@ -189,6 +184,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         tags: tagsOf(row.id),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        duplicates: row.file_hash ? db.prepare(`SELECT d.id, d.title, s.name AS sourceName FROM documents d JOIN sources s ON s.id = d.source_id WHERE d.user_id = ? AND d.file_hash = ? AND d.id != ? AND d.deleted_at IS NULL LIMIT 30`).all(user.id, row.file_hash, row.id) : [],
         fileAvailable: Boolean(row.file_path && fs.existsSync(row.file_path)),
       },
     });

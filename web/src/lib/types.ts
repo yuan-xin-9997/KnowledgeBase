@@ -56,6 +56,7 @@ export interface SyncJob {
 }
 
 export interface SearchItem {
+  duplicateCount?: number;
   id: string;
   title: string;
   snippet: string;
@@ -83,6 +84,7 @@ export interface SearchResponse {
 }
 
 export interface DocumentDetail {
+  duplicates?: Array<{ id: string; title: string; sourceName: string }>;
   id: string;
   sourceId: string;
   sourceName: string;
@@ -164,6 +166,7 @@ export interface ApiCredentialMetadata {
 }
 
 export interface ChatScope {
+  folder?: string | null;
   mode: "all" | "sources" | "documents" | "none";
   sourceIds: string[];
   documentIds: string[];
@@ -181,6 +184,7 @@ export interface ChatSession {
 }
 
 export interface Citation {
+  excerpt?: string;
   index: number;
   documentId: string;
   title: string;
@@ -194,4 +198,13 @@ export interface ChatMessage {
   content: string;
   citations: Citation[] | null;
   createdAt: string;
+}
+
+export interface FolderEntry { path: string; count: number; hasChildren: boolean }
+export interface SyncItem { externalId: string; title: string; action: string; error: string | null }
+
+export interface BackupStatus {
+  busy: boolean;
+  lastAttempt: { status: string; time: string; error?: string } | null;
+  items: Array<{ id: string; createdAt: string; size: number; error?: string; verification: { ok: boolean; verifiedAt: string; documents?: number; sources?: number; error?: string } | null }>;
 }

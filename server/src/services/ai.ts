@@ -43,6 +43,7 @@ export interface ChatTurn {
 }
 
 export interface Citation {
+  excerpt?: string;
   index: number;
   documentId: string;
   title: string;
