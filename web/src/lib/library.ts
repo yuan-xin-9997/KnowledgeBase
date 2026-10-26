@@ -58,3 +58,11 @@ export function documentImageUrl(src: string | undefined, doc: { id: string; sou
   if (["local", "smb"].includes(doc.sourceType)) return `/api/documents/${encodeURIComponent(doc.id)}/image?src=${encodeURIComponent(src)}`;
   try { const url = new URL(src, doc.url || ""); return externalUrl(url.href) || undefined; } catch { return undefined; }
 }
+
+export function visibleFolders(folders: string[], collapsed: ReadonlySet<string>) {
+  const parents = new Set(folders.filter(value => value.includes("/")).map(value => value.slice(0, value.lastIndexOf("/"))));
+  return folders.filter(value => {
+    const parts = value.split("/");
+    return !parts.slice(0, -1).some((_, index) => collapsed.has(parts.slice(0, index + 1).join("/")));
+  }).map(path => ({ path, hasChildren: parents.has(path), depth: path.split("/").length - 1 }));
+}

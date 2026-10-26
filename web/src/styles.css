@@ -728,3 +728,13 @@ mark {
 .source-folders { max-height: 240px; overflow: auto; margin: 8px 0; border-block: 1px solid var(--line); padding: 6px 0; }
 .source-folders button { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 12px; text-align: left; font-size: 12px; overflow-wrap: anywhere; }
 .source-folders button:hover, .source-folders button.active { background: var(--paper-2); color: var(--accent-strong); }
+
+.source-folder-controls, .source-folder-controls > div, .source-folder-row { display: flex; align-items: center; }
+.source-folder-controls { justify-content: space-between; gap: 8px; }
+.source-folder-controls > button { flex: 1; }
+.source-folder-controls > div { flex-shrink: 0; }
+.source-folder-controls > div button { width: auto; padding: 6px; font-size: 11px; white-space: nowrap; }
+.source-folder-row > button:last-child { flex: 1; min-width: 0; padding-left: 4px; }
+.source-folder-row .source-folder-toggle, .source-folder-spacer { width: 24px; height: 28px; flex: 0 0 24px; }
+.source-folder-row .source-folder-toggle { justify-content: center; padding: 0; }
+.source-folder-row svg { flex-shrink: 0; }

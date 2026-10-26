@@ -1,3 +1,4 @@
+import FolderNavigation from "../components/library/FolderNavigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowDownWideNarrow, BookOpen, BookmarkPlus, ChevronLeft, ChevronRight,
@@ -159,13 +160,8 @@ export default function LibraryPage() {
             setSaveOpen(false); toast("筛选已保存到左侧导航", "success");
           } catch { toast("浏览器暂时无法保存筛选", "error"); }
         }}><input aria-label="筛选名称" placeholder="为这个筛选起个名字" value={viewName} maxLength={40} onChange={event => setViewName(event.target.value)} /><button className="btn btn-primary btn-sm" disabled={!viewName.trim()}>保存</button><button type="button" className="icon-button" aria-label="取消保存筛选" onClick={() => setSaveOpen(false)}><X size={14} /></button></form>}
-        {sourceId && <nav className="source-folders" aria-label="来源文件夹">
-          <button className={!folder ? "active" : ""} onClick={() => patch({ folder: null })}><FolderOpen size={14} />全部文件夹</button>
-          {folderError && <p role="alert">{folderError}</p>}
-          {folders.map(value => <button key={value} title={value} className={folder === value ? "active" : ""}
-            style={{ paddingLeft: 12 + (value.split("/").length - 1) * 16 }} onClick={() => patch({ folder: value })}>
-            <FolderOpen size={14} />{value.split("/").at(-1)}</button>)}
-        </nav>}
+        {sourceId && <FolderNavigation key={sourceId} folders={folders} selected={folder} error={folderError}
+          onSelect={value => patch({ folder: value })} />}
         <div className="library-list-meta"><span>{loading ? "正在查找…" : formatNumber(total) + " 篇资料"}{q && <strong> · “{q}”</strong>}</span>
           <label><ArrowDownWideNarrow size={12} /><select aria-label="排序方式" value={sort} onChange={event => patch({ sort: event.target.value })}>
             {q && <option value="relevance">相关度</option>}<option value="newest">最新优先</option><option value="oldest">最早优先</option>

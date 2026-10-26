@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews, documentImageUrl } from "../web/src/lib/library.ts";
+import { cleanExcerpt, externalUrl, loadSavedViews, savedQuery, storeSavedViews, documentImageUrl, visibleFolders } from "../web/src/lib/library.ts";
 
 const preview = cleanExcerpt("# 阅读资料\n[mp.weixin.qq.com](https://example.com/" + "x".repeat(500) + ")\n**可读的正文**", "阅读资料");
 assert.equal(preview, "可读的正文");
@@ -39,3 +39,14 @@ assert.equal(documentImageUrl("javascript:alert(1)", localDoc), undefined);
 assert.equal(documentImageUrl("https://cdn.example/image.png", localDoc), "https://cdn.example/image.png");
 assert.equal(documentImageUrl("../image.png", { ...localDoc, sourceType: "cubox", url: "https://example.com/a/page" }), "https://example.com/image.png");
 assert.equal(savedQuery(new URLSearchParams("sourceId=s&folder=a%2Fb")), "sourceId=s&folder=a%2Fb");
+
+const folders = ["a", "a/b", "a/b/c", "a/d", "ab", "ab/e"];
+assert.deepEqual(visibleFolders(folders, new Set(["a"])).map(row => row.path), ["a", "ab", "ab/e"]);
+assert.deepEqual(visibleFolders(folders, new Set(["a/b"])).map(row => row.path), ["a", "a/b", "a/d", "ab", "ab/e"]);
+assert.deepEqual(visibleFolders(folders, new Set(folders)).map(row => row.path), ["a", "ab"]);
+assert.deepEqual(visibleFolders(folders, new Set()).map(row => row.path), folders);
+assert.deepEqual(visibleFolders(folders, new Set())[1], { path: "a/b", hasChildren: true, depth: 1 });
+assert.equal(visibleFolders(folders, new Set())[2].hasChildren, false);
+assert.deepEqual(visibleFolders([], new Set()), []);
+
+assert.equal(visibleFolders(["ab", "abc"], new Set())[0].hasChildren, false);
