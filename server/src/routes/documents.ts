@@ -185,7 +185,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         duplicates: row.file_hash ? db.prepare(`SELECT d.id, d.title, s.name AS sourceName FROM documents d JOIN sources s ON s.id = d.source_id WHERE d.user_id = ? AND d.file_hash = ? AND d.id != ? AND d.deleted_at IS NULL LIMIT 30`).all(user.id, row.file_hash, row.id) : [],
-        fileAvailable: Boolean(row.file_path && fs.existsSync(row.file_path)),
+        fileAvailable: Boolean(row.file_path && fs.existsSync(row.file_path)) || row.source_type === "smb",
       },
     });
   });
@@ -201,31 +201,43 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
       reply.code(404).send({ error: "文档不存在" });
       return;
     }
-    if (!row.file_path) {
-      reply.code(404).send({ error: "该文档没有可下载的原始文件" });
-      return;
-    }
-    let stat: fs.Stats;
+    let buffer: Buffer | undefined;
+    let size: number;
+    let filePath = row.file_path;
     try {
-      stat = fs.statSync(row.file_path);
+      const stat = filePath ? fs.statSync(filePath) : null;
+      if (!stat?.isFile()) throw new Error("missing");
+      size = stat.size;
     } catch {
-      reply.code(404).send({ error: "原始文件当前不可访问" });
-      return;
+      const source = getSourceRow(user.id, row.source_id);
+      if (source.type !== "smb") return reply.code(404).send({ error: "原始文件当前不可访问" });
+      const settings = parseSmbConfig(sourceConfig(source));
+      const base = settings.basePath.replace(/\\/g, "/");
+      const relative = sourceDocumentPath(row.external_id, base);
+      if (/^[a-z][a-z0-9+.-]*:|^\/|\x00/i.test(relative) || relative.split("/").includes("..")) {
+        return reply.code(403).send({ error: "文件超出来源目录" });
+      }
+      if (row.size && row.size > settings.maxFileSizeMb * 1024 * 1024) return reply.code(413).send({ error: "原文件超过来源的读取大小上限" });
+      const client = createClient(settings);
+      try {
+        buffer = await client.readFile(path.posix.join(base, relative).replace(/\//g, "\\"));
+      } catch {
+        return reply.code(502).send({ error: "无法从 SMB 读取原文件，请检查来源连接与文件权限" });
+      } finally { client.disconnect(); }
+      size = buffer.length;
+      filePath = row.external_id;
     }
-    if (!stat.isFile()) {
-      reply.code(404).send({ error: "原始文件当前不可访问" });
-      return;
-    }
-    const cacheRelative = path.relative(path.resolve(config.dataDir, "attachments"), path.resolve(row.file_path));
+    const cacheRelative = path.relative(path.resolve(config.dataDir, "attachments"), path.resolve(filePath!));
     const cached = cacheRelative !== "" && !path.isAbsolute(cacheRelative) && !cacheRelative.startsWith("..");
-    const extension = path.extname(row.file_path);
+    const extension = path.extname(filePath!);
     const title = row.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() || "附件";
-    const fileName = cached ? `${title}${title.toLowerCase().endsWith(extension.toLowerCase()) ? "" : extension}` : path.basename(row.file_path);
+    const fileName = cached ? `${title}${title.toLowerCase().endsWith(extension.toLowerCase()) ? "" : extension}` : path.basename(filePath!);
     const range = request.headers.range;
     reply.header("Accept-Ranges", "bytes");
     reply.header("Content-Type", row.mime_type || "application/octet-stream");
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Security-Policy", "sandbox");
+    // PDF viewers need their built-in viewer; active document formats stay isolated.
+    if (row.mime_type?.split(";")[0].trim().toLowerCase() !== "application/pdf") reply.header("Content-Security-Policy", "sandbox");
     reply.header(
       "Content-Disposition",
       `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
@@ -234,20 +246,20 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
       const match = /^bytes=(\d*)-(\d*)$/.exec(range);
       if (match) {
         const suffix = !match[1] && match[2] ? Number(match[2]) : null;
-        const start = suffix !== null ? Math.max(0, stat.size - suffix) : Number(match[1] || 0);
-        const end = suffix !== null ? stat.size - 1 : Math.min(Number(match[2] || stat.size - 1), stat.size - 1);
-        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || stat.size === 0 || (suffix !== null && suffix <= 0) || start >= stat.size || end < start) {
-          reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
+          const start = suffix !== null ? Math.max(0, size - suffix) : Number(match[1] || 0);
+          const end = suffix !== null ? size - 1 : Math.min(Number(match[2] || size - 1), size - 1);
+          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || size === 0 || (suffix !== null && suffix <= 0) || start >= size || end < start) {
+            reply.code(416).header("Content-Range", `bytes */${size}`).send();
           return;
         }
         reply.code(206);
-        reply.header("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+        reply.header("Content-Range", `bytes ${start}-${end}/${size}`);
         reply.header("Content-Length", end - start + 1);
-        return reply.send(fs.createReadStream(row.file_path, { start, end }));
+        return reply.send(buffer ? buffer.subarray(start, end + 1) : fs.createReadStream(filePath!, { start, end }));
       }
     }
-    reply.header("Content-Length", stat.size);
-    return reply.send(fs.createReadStream(row.file_path));
+    reply.header("Content-Length", size);
+    return reply.send(buffer ?? fs.createReadStream(filePath!));
   });
 
   app.delete("/api/documents/:id", async (request, reply) => {

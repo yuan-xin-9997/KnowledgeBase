@@ -140,6 +140,25 @@ describe("multi-user API boundaries", () => {
       expect(disconnect).toHaveBeenCalledOnce();
       expect((await app.inject({ url: url("../../secret.png"), headers: { cookie: ownerCookie } })).statusCode).toBe(403);
       expect(readFile).toHaveBeenCalledOnce();
+      // A full cache must not prevent reading a PDF directly from the source.
+      db.prepare("UPDATE documents SET external_id = ?, mime_type = ?, file_path = ? WHERE id = ?")
+        .run("资料/教程/文档.pdf", "application/pdf", path.join(tempDir, "missing.pdf"), "smb-image-doc");
+      expect((await app.inject({ url: "/api/documents/smb-image-doc", headers: { cookie: ownerCookie } })).json().document.fileAvailable).toBe(true);
+      const fileUrl = "/api/documents/smb-image-doc/file";
+      const denied = await app.inject({ url: fileUrl, headers: { cookie: secondCookie } });
+      expect(denied.statusCode).toBe(404);
+      const pdf = await app.inject({ url: fileUrl, headers: { cookie: ownerCookie, range: "bytes=1-3" } });
+      expect(pdf.statusCode).toBe(206);
+      expect(pdf.headers["content-type"]).toBe("application/pdf");
+      expect(pdf.headers["content-range"]).toBe("bytes 1-3/5");
+      expect(pdf.body).toBe("mag");
+      expect(readFile).toHaveBeenLastCalledWith("资料\\教程\\文档.pdf");
+      readFile.mockRejectedValueOnce(new Error("secret credentials"));
+      const failed = await app.inject({ url: fileUrl, headers: { cookie: ownerCookie } });
+      expect(failed.statusCode).toBe(502);
+      expect(failed.body).not.toContain("secret credentials");
+      db.prepare("UPDATE documents SET external_id = ? WHERE id = ?").run("资料/../secret.pdf", "smb-image-doc");
+      expect((await app.inject({ url: fileUrl, headers: { cookie: ownerCookie } })).statusCode).toBe(403);
       db.prepare("DELETE FROM documents WHERE id = 'smb-image-doc'").run();
       db.prepare("DELETE FROM sources WHERE id = ?").run(id);
     } finally { factory.mockRestore(); }
