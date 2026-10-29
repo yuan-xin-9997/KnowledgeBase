@@ -1,3 +1,5 @@
+import DocumentPreview from "../components/library/DocumentPreview";
+import { previewKind } from "../lib/documentPreview";
 import ReadingBody from "../components/library/ReadingBody";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -160,6 +162,7 @@ export default function DocumentPage() {
     );
   }
 
+  const mediaKind = previewKind(doc);
   const originalUrl = httpUrl(doc.url);
   const displayDate = doc.sourceCreatedAt || doc.publishedAt || doc.createdAt;
   const hasContent = Boolean(doc.content && doc.content.trim());
@@ -269,7 +272,7 @@ export default function DocumentPage() {
                 </p>
               )}
 
-              {hasContent ? (
+              {mediaKind ? <DocumentPreview key={doc.id} document={doc} kind={mediaKind} /> : hasContent ? (
                 <ReadingBody key={doc.id} document={doc} query={searchParams.get("q") || ""} passage={searchParams.get("passage") || ""} />
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -390,3 +393,4 @@ export default function DocumentPage() {
     </div>
   );
 }
+

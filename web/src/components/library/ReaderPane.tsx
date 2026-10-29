@@ -1,3 +1,5 @@
+import DocumentPreview from "./DocumentPreview";
+import { previewKind } from "../../lib/documentPreview";
 import ReadingBody from "./ReadingBody";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -65,7 +67,7 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag, fol
             {doc.tags.map(tag => <button key={tag} className="reading-tag" onClick={() => onTag(tag)}>#{tag}</button>)}
           </div>
           {(doc.duplicates?.length || 0) > 0 && <details className="reading-duplicates"><summary>发现 {doc.duplicates!.length} 份相同正文</summary>{doc.duplicates!.map(item => <Link key={item.id} to={"/library?doc=" + item.id}>{item.sourceName} · {item.title}</Link>)}</details>}
-          {content.trim() ? <ReadingBody key={doc.id} document={doc} query={query} passage={passage} scrollRoot={scroll} /> : <div className="reader-no-body"><FileText size={27} /><h3>{doc.kind === "note" ? "这条笔记没有额外正文" : "暂时只有文件信息"}</h3><p>{doc.kind === "note" ? "笔记标题已完整显示在上方。来源没有提供其他可阅读的文本内容。" : doc.metadata?.sizeExceeded ? "文件超过来源的大小上限，尚未提取正文。可以在来源设置中调整上限后重新同步。" : "这个格式尚未提取出可阅读的正文。你可以打开原文件，或到信息来源中重新同步。"}</p><Link to="/sources" className="btn btn-ghost btn-sm">查看来源设置</Link></div>}
+          {previewKind(doc) ? <DocumentPreview key={doc.id} document={doc} kind={previewKind(doc)!} /> : content.trim() ? <ReadingBody key={doc.id} document={doc} query={query} passage={passage} scrollRoot={scroll} /> : <div className="reader-no-body"><FileText size={27} /><h3>{doc.kind === "note" ? "这条笔记没有额外正文" : "暂时只有文件信息"}</h3><p>{doc.kind === "note" ? "笔记标题已完整显示在上方。来源没有提供其他可阅读的文本内容。" : doc.metadata?.sizeExceeded ? "文件超过来源的大小上限，尚未提取正文。可以在来源设置中调整上限后重新同步。" : "这个格式尚未提取出可阅读的正文。你可以打开原文件，或到信息来源中重新同步。"}</p><Link to="/sources" className="btn btn-ghost btn-sm">查看来源设置</Link></div>}
         </article>
       </div>}
     {assistant && doc && <ReaderAssistant key={doc.id} document={doc} folder={folder} onClose={() => setAssistant(false)} />}
@@ -75,3 +77,4 @@ export default function ReaderPane({ id, onClose, onPrevious, onNext, onTag, fol
 function BookPlaceholder() {
   return <svg width="38" height="38" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M20 12c-4-3-9-4-14-3v23c5-1 10 0 14 3m0-23c4-3 9-4 14-3v23c-5-1-10 0-14 3m0-23v23" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
+

@@ -76,3 +76,7 @@ await api.documents.folders("source", "");
 assert.equal(new URL("http://test" + folderRequest).searchParams.has("parent"), true);
 assert.equal(new URL("http://test" + folderRequest).searchParams.get("parent"), "");
 globalThis.fetch = originalFetch;
+import { previewKind } from "../web/src/lib/documentPreview.ts";
+for (const [mimeType, filePath, expected] of [["application/pdf", "a", "pdf"], ["text/html; charset=utf-8", null, "html"], ["audio/mpeg", null, "audio"], ["video/mp4", null, "video"], [null, "a.PDF", "pdf"], [null, "a.mp3", "audio"], [null, "a.webm", "video"], ["text/plain", "a.txt", null]]) {
+  assert.equal(previewKind({ mimeType, filePath, kind: "file", url: null }), expected);
+}
