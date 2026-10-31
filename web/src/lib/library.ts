@@ -26,7 +26,7 @@ export function externalUrl(value: string | null | undefined): string | null {
 
 export function savedQuery(params: URLSearchParams): string {
   const copy = new URLSearchParams();
-  for (const key of ["q", "mode", "sourceId", "folder", "deduplicate", "kind", "tag", "from", "to", "sort"]) {
+  for (const key of ["q", "mode", "sourceId", "folder", "deduplicate", "kind", "format", "tag", "from", "to", "sort"]) {
     const value = params.get(key);
     if (value) copy.set(key, value);
   }

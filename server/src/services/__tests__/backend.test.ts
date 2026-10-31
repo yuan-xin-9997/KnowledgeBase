@@ -72,6 +72,19 @@ afterAll(async () => {
 });
 
 describe("multi-user API boundaries", () => {
+  it("filters formats consistently in lists and search, scoped to the owner and source", async () => {
+    db.prepare("UPDATE documents SET mime_type = 'application/pdf' WHERE id = 'private-doc'").run();
+    try {
+      const formats = await app.inject({ url: `/api/documents/formats?sourceId=${sourceId}`, headers: { cookie: ownerCookie } });
+      expect(formats.json().formats).toContain("pdf");
+      expect((await app.inject({ url: `/api/documents/formats?sourceId=${sourceId}`, headers: { cookie: secondCookie } })).json().formats).toEqual([]);
+      for (const endpoint of ["documents", "search"]) {
+        const result = await app.inject({ url: `/api/${endpoint}?format=pdf&q=` + encodeURIComponent("机器学习"), headers: { cookie: ownerCookie } });
+        expect(result.json().items.map((item: { id: string }) => item.id)).toEqual(["private-doc"]);
+        expect((await app.inject({ url: `/api/${endpoint}?format=mp3`, headers: { cookie: ownerCookie } })).json().total).toBe(0);
+      }
+    } finally { db.prepare("UPDATE documents SET mime_type = NULL WHERE id = 'private-doc'").run(); }
+  });
   it("requires authentication and isolates sources, documents, files and model configs", async () => {
     expect((await app.inject("/api/documents")).statusCode).toBe(401);
     for (const url of [`/api/sources/${sourceId}`, "/api/documents/private-doc", "/api/documents/private-doc/file"]) {

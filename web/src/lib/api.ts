@@ -126,6 +126,7 @@ export const api = {
     list: () => request<{ jobs: import("./types").SyncJob[] }>("/api/sync-jobs"),
   },
   documents: {
+    formats: (sourceId?: string) => request<{ formats: string[] }>(`/api/documents/formats${qs({ sourceId })}`),
     folders: (sourceId: string, parent?: string, offset = 0, reveal?: string) => request<{ folders: string[]; items: import("./types").FolderEntry[]; total: number }>(`/api/documents/folders${qs({ sourceId, parent, offset, reveal })}`),
     list: (params: {
       q?: string;
@@ -134,6 +135,7 @@ export const api = {
       folder?: string;
       deduplicate?: boolean;
       kind?: string;
+      format?: string;
       tag?: string;
       from?: string;
       to?: string;
@@ -166,6 +168,7 @@ export const api = {
       folder?: string;
       deduplicate?: boolean;
       kind?: string;
+      format?: string;
       tag?: string;
       from?: string;
       to?: string;

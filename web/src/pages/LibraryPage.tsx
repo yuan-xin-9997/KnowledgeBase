@@ -24,12 +24,15 @@ export default function LibraryPage() {
   const deduplicate = params.get("deduplicate") === "true";
   const folder = params.get("folder") || "";
   const kind = params.get("kind") || "";
+  const format = params.get("format") || "";
+  const [formats, setFormats] = useState<string[]>([]);
+  useEffect(() => { let active = true; void api.documents.formats(sourceId || undefined).then(value => { if (active) setFormats(value.formats); }).catch(() => { if (active) setFormats([]); }); return () => { active = false; }; }, [sourceId]);
   const tag = params.get("tag") || "";
   const from = params.get("from") || "";
   const to = params.get("to") || "";
   const sort = params.get("sort") === "oldest" ? "oldest" : params.get("sort") === "newest" ? "newest" : q ? "relevance" : "newest";
   const previousReading = readPreference<{ id?: string; page?: number }>(`kb:last-document:${user?.id}:${sourceId}:${folder}`, {});
-  const resumePage = !q && !kind && !tag && !from && !to && !params.has("doc") ? previousReading.page : 1;
+  const resumePage = !q && !kind && !format && !tag && !from && !to && !params.has("doc") ? previousReading.page : 1;
   const page = Math.max(1, Math.min(100000, Math.floor(Number(params.get("page")) || resumePage || 1)));
   const selectedId = params.get("doc");
   const [input, setInput] = useState(q);
@@ -46,12 +49,12 @@ export default function LibraryPage() {
   const listScroll = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
   const loadedKey = useRef("");
-  const queryKey = JSON.stringify([q, mode, sourceId, folder, deduplicate, kind, tag, from, to, sort, page, reload]);
+  const queryKey = JSON.stringify([q, mode, sourceId, folder, deduplicate, kind, format, tag, from, to, sort, page, reload]);
   const items = result?.items || [];
   const total = result?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentIndex = items.findIndex(item => item.id === selectedId);
-  const activeFilters = [sourceId, folder, kind, tag, from, to].filter(Boolean).length;
+  const activeFilters = [sourceId, folder, kind, format, tag, from, to].filter(Boolean).length;
   const heading = q ? "搜索结果" : sourceId ? sources.find(source => source.id === sourceId)?.name || "来源文档"
     : tag ? "#" + tag : kind === "article" ? "文章" : kind === "file" ? "专业文件" : from ? "最近添加" : "全部文档";
 
@@ -65,7 +68,7 @@ export default function LibraryPage() {
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true); setError("");
-    const shared = { deduplicate, folder: folder || undefined, mode, sourceId: sourceId || undefined, kind: kind || undefined, tag: tag || undefined,
+    const shared = { deduplicate, folder: folder || undefined, mode, sourceId: sourceId || undefined, kind: kind || undefined, format: format || undefined, tag: tag || undefined,
       from: from || undefined, to: to || undefined, sort, page, pageSize: PAGE_SIZE };
     const promise = q ? api.search.query({ ...shared, q }) : api.documents.list(shared);
     void promise.then(value => {
@@ -80,8 +83,8 @@ export default function LibraryPage() {
       if (id === requestId.current) { setError(reason instanceof Error ? reason.message : "加载失败，请重试"); setResult(null); }
     }).finally(() => { if (id === requestId.current) setLoading(false); });
     return () => { requestId.current++; };
-  }, [q, mode, sourceId, folder, deduplicate, kind, tag, from, to, sort, page, reload, queryKey, setParams]);
-  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, folder, deduplicate, kind, tag, from, to, page]);
+  }, [q, mode, sourceId, folder, deduplicate, kind, format, tag, from, to, sort, page, reload, queryKey, setParams]);
+  useEffect(() => { setDismissed(false); }, [q, mode, sourceId, folder, deduplicate, kind, format, tag, from, to, page]);
   useEffect(() => {
     if (!loading && loadedKey.current === queryKey && !selectedId && !dismissed && items.length && window.matchMedia("(min-width: 900px)").matches) {
       setParams(previous => { const next = new URLSearchParams(previous); next.set("doc", items.find(item => item.id === previousReading.id)?.id || items[0].id); if (page > 1) next.set("page", String(page)); return next; }, { replace: true });
@@ -140,7 +143,7 @@ export default function LibraryPage() {
         </div>
         {filtersOpen && <div className="library-filter-panel">
           <label>来源<select value={sourceId} onChange={event => patch({ sourceId: event.target.value || null })}><option value="">全部来源</option>{sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select></label>
-          <label>类型<select value={kind} onChange={event => patch({ kind: event.target.value || null })}><option value="">全部类型</option><option value="article">文章</option><option value="file">文件</option><option value="note">笔记</option></select></label>
+          <label>文件格式<select value={format} onChange={event => patch({ format: event.target.value || null })}><option value="">全部格式</option>{[...new Set([...formats, ...(format ? [format] : [])])].map(value => <option key={value} value={value}>{value === "markdown" ? "Markdown" : value.toUpperCase()}</option>)}</select></label>
           <label className="filter-full">标签<select value={tag} onChange={event => patch({ tag: event.target.value || null })}><option value="">全部标签</option>{tags.map(item => <option key={item.tag} value={item.tag}>{item.tag}</option>)}</select></label>
           <label>开始日期<input aria-label="开始日期" type="date" value={from} onChange={event => patch({ from: event.target.value || null })} /></label>
           <label>结束日期<input aria-label="结束日期" type="date" value={to} min={from || undefined} onChange={event => patch({ to: event.target.value || null })} /></label>

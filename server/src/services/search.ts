@@ -1,3 +1,4 @@
+import { documentFormat } from "./document-format.js";
 import { documentFolder, contentFingerprint } from "./document-meta.js";
 export { documentFolder } from "./document-meta.js";
 import { db } from "../db.js";
@@ -82,6 +83,7 @@ export interface SearchOptions {
   folder?: string;
   deduplicate?: boolean;
   kind?: string;
+  format?: string;
   tag?: string;
   from?: string;
   to?: string;
@@ -180,6 +182,10 @@ function buildFilters(
   if (options.kind) {
     clauses.push(`${alias}.kind = ?`);
     params.push(options.kind);
+  }
+  if (options.format) {
+    clauses.push(`kb_format(${alias}.mime_type, ${alias}.external_id, ${alias}.url, ${alias}.content_format, ${alias}.kind) = ?`);
+    params.push(options.format);
   }
   if (options.tag) {
     clauses.push(
@@ -483,3 +489,5 @@ export function retrieveForAi(
 }
 
 db.function("kb_folder", { deterministic: true }, (metadata, externalId, kind) => documentFolder(metadata as string | null, String(externalId), String(kind)));
+
+db.function("kb_format", { deterministic: true }, (mime, externalId, url, format, kind) => documentFormat(mime as string | null, String(externalId), url as string | null, String(format), String(kind)));

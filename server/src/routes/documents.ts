@@ -21,6 +21,7 @@ const listSchema = z.object({
   folder: z.string().max(4096).optional(),
   deduplicate: z.enum(["true", "false"]).transform(value => value === "true").optional(),
   kind: z.string().optional(),
+  format: z.string().max(30).optional(),
   tag: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
@@ -38,6 +39,15 @@ function tagsOf(documentId: string): string[] {
 }
 
 export default async function documentRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/documents/formats", async (request, reply) => {
+    const user = requireUser(request, reply);
+    if (!user) return;
+    const { sourceId } = parseQuery(z.object({ sourceId: z.string().optional() }), request);
+    const rows = db.prepare(`SELECT DISTINCT kb_format(mime_type, external_id, url, content_format, kind) AS format
+      FROM documents WHERE user_id = ? AND deleted_at IS NULL ${sourceId ? "AND source_id = ?" : ""} ORDER BY format`)
+      .all(user.id, ...(sourceId ? [sourceId] : [])) as Array<{ format: string }>;
+    return { formats: rows.map(row => row.format) };
+  });
   app.get("/api/documents", async (request, reply) => {
     const user = requireUser(request, reply);
     if (!user) return;
@@ -51,6 +61,7 @@ export default async function documentRoutes(app: FastifyInstance): Promise<void
         folder: query.folder,
         deduplicate: query.deduplicate,
         kind: query.kind,
+        format: query.format,
         tag: query.tag,
         from: searchDate(query.from),
         to: searchDate(query.to, true),
