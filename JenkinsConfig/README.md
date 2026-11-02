@@ -9,27 +9,56 @@
 1. `prepare`：`npm ci` → `typecheck` → `test` → `build` → SQLite 在线一致性备份。此阶段失败不会停止线上服务。
 2. `stop`：备份确认成功后才执行 `systemctl stop knowledgebase.service`。
 3. `update`：`rsync` 工作区到 `/opt/KnowledgeBase`，保留 `.data/`、`.env`、`node_modules/`。
-4. `start`：安装/刷新 systemd 单元，必要时 `npm ci --omit=dev`，启动服务，`health.mjs` 轮询 `/api/health`。
+4. `start`：校验生产 systemd 单元由 `root:root` 持有且部署账号不可写，必要时 `npm ci --omit=dev`，重启固定服务，`health.mjs` 轮询 `/api/health`。
 
 触发器：`pollSCM('H/30 * * * *')`，仓库使用 SSH 地址 `git@github.com:yuan-xin-9997/KnowledgeBase.git`，凭据示例为 `your-github-ssh-credential-id`，导入前替换为自己的 Jenkins 凭据 ID；既有任务无需重新导入。
 
-## 首次准备（在 deploy.example.com 上以有 sudo 权限的账号执行）
+## 安全边界与部署约束
+
+- `/opt/KnowledgeBase` 及 `JenkinsConfig/` 归 `jenkins:jenkins`，属于应用可写目录；其中的 `knowledgebase.service` 和 `sudoers.d-knowledgebase-deploy` 只是参考副本，不是生产配置。
+- 生产 unit 固定为 `/etc/systemd/system/knowledgebase.service`，由 `root:root` 持有；Jenkins 没有 `/etc/systemd/system`、`/etc/sudoers.d` 或 `/usr/local/sbin` 的写权限。
+- Jenkins 的 sudo 权限只包含对该固定 unit 的 `stop`、`start`、`restart`。禁止恢复 `install`、`daemon-reload`、`enable` 或任意文件路径参数。
+- 部署脚本不执行应用目录中的脚本作为 root，也不继承 Jenkins 环境变量作为 root 命令的配置。
+
+## 首次准备（仅 root 执行）
+
+生产 unit 和 sudoers 由 root 安装、持有和维护。`JenkinsConfig/` 中的副本仅供审阅，部署账号不能安装它们。
 
 ```bash
 sudo mkdir -p /opt/KnowledgeBase/.data
 sudo chown -R jenkins:jenkins /opt/KnowledgeBase
 
-# 安装服务定义（之后 deploy.sh 会自动刷新）
-sudo install -m 0644 /opt/KnowledgeBase/JenkinsConfig/knowledgebase.service \
+# 1. 在 root 控制的目录中准备并审核 unit/sudoers 模板。
+#    不要给 jenkins 增加 install/daemon-reload/enable 的免密权限。
+sudo install -d -m 0700 /root/knowledgebase-unit
+sudo install -m 0600 /opt/KnowledgeBase/JenkinsConfig/knowledgebase.service \
+  /root/knowledgebase-unit/knowledgebase.service
+sudo install -m 0600 /opt/KnowledgeBase/JenkinsConfig/sudoers.d-knowledgebase-deploy \
+  /root/knowledgebase-unit/sudoers.d-knowledgebase-deploy
+sudo chown root:root /root/knowledgebase-unit/*
+# 审核内容后再继续。
+
+# 2. 安装固定生产 unit，保持 root:root 0644。
+sudo install -m 0644 /root/knowledgebase-unit/knowledgebase.service \
   /etc/systemd/system/knowledgebase.service
 sudo systemctl daemon-reload
 sudo systemctl enable knowledgebase.service
 
-# 允许 jenkins 用户管理该服务
-sudo install -m 0440 /opt/KnowledgeBase/JenkinsConfig/sudoers.d-knowledgebase-deploy \
+# 3. 安装最小 sudo 规则：仅允许 jenkins 对固定 unit 执行 stop/start/restart。
+sudo install -m 0440 /root/knowledgebase-unit/sudoers.d-knowledgebase-deploy \
   /etc/sudoers.d/knowledgebase-deploy
 sudo visudo -cf /etc/sudoers.d/knowledgebase-deploy
 ```
+
+安装后的权限边界应为：
+
+```text
+/etc/systemd/system/knowledgebase.service       root:root 0644
+/etc/sudoers.d/knowledgebase-deploy             root:root 0440
+/usr/local/sbin                                 root:root 0755（无 KnowledgeBase 包装脚本）
+```
+
+`deploy.sh` 只执行 `systemctl stop|start|restart knowledgebase.service`，并在启动前检查生产 unit 的属主和可写性。它不会安装 unit、执行 `daemon-reload`、`enable`，也不会执行应用目录中的任何文件作为 root。
 
 首次启动前可手动生成 `.env`（`deploy.sh start` 也会自动生成）：
 
@@ -99,11 +128,8 @@ cat /opt/KnowledgeBase/DEPLOYED_COMMIT
 
 ## 回滚
 
-```bash
-cd /opt/KnowledgeBase
-git log --oneline -5
-# 在 Jenkins 中选择历史构建的提交，或手动 checkout 后重新执行部署脚本
-sudo systemctl restart knowledgebase.service
-```
+- 应用版本：在 Jenkins 中选择历史构建的提交并重新构建；或恢复上一版本的 `server/dist`、`web/dist` 后执行 `sudo systemctl restart knowledgebase.service`。
+- 权限配置：本次加固前的 root 备份位于 `/var/backups/security-remediation-*`。恢复 `/etc/systemd/system/knowledgebase.service`、`/etc/sudoers.d/knowledgebase-deploy` 后，执行 `sudo visudo -cf /etc/sudoers.d/knowledgebase-deploy` 和 `sudo systemctl daemon-reload`。
+- 注意：旧 sudo 规则包含“jenkins 可安装应用可写 unit”的提权路径。回滚权限配置会重新引入该风险，只应在明确需要时短时使用，并尽快重新加固。
 
 备份只包含 SQLite 一致性快照、`.env` 和 `secret.key`；附件缓存可从原始来源重新同步，不纳入停服前备份。部署脚本不自动回滚；数据库结构变更均为向后兼容的新增表或列。

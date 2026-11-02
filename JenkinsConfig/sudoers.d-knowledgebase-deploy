@@ -1,7 +1,5 @@
+# Managed by root. Jenkins may only stop/start/restart the fixed root-owned unit.
+# Never add install/daemon-reload/enable or any command that accepts a file path.
 jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl stop knowledgebase.service
 jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl start knowledgebase.service
 jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl restart knowledgebase.service
-jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload
-jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl enable knowledgebase.service
-jenkins ALL=(root) NOPASSWD: /usr/bin/systemctl is-active knowledgebase.service
-jenkins ALL=(root) NOPASSWD: /usr/bin/install -m 0644 /opt/KnowledgeBase/JenkinsConfig/knowledgebase.service /etc/systemd/system/knowledgebase.service

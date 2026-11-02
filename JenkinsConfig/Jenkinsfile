@@ -27,6 +27,20 @@ pipeline {
             }
         }
 
+        stage('Verify deployment boundary') {
+            // 生产 unit/sudoers 必须由 root 持有；部署账号只获得固定 unit 的启停权限。
+            steps {
+                sh '''
+                    set -eu
+                    unit=/etc/systemd/system/knowledgebase.service
+                    test "$(stat -c '%U:%G' "$unit")" = "root:root"
+                    test ! -w "$unit"
+                    test ! -w /etc/sudoers.d/knowledgebase-deploy
+                    test ! -w /usr/local/sbin
+                '''
+            }
+        }
+
         stage('Build and test') {
             // 安装依赖、类型检查、测试、构建。此阶段失败不会停止正在运行的服务。
             steps {
