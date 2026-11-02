@@ -16,6 +16,7 @@ pipeline {
     environment {
         DEPLOY_ROOT  = '/opt/KnowledgeBase'
         SERVICE_NAME = 'knowledgebase.service'
+        APP_URL = 'https://kb.example.com'
     }
 
     stages {
@@ -54,7 +55,7 @@ pipeline {
 
     post {
         success {
-            echo "KnowledgeBase ${env.BUILD_NUMBER} 部署成功：http://192.168.0.111:36080"
+            echo "KnowledgeBase ${env.BUILD_NUMBER} 部署成功：${env.APP_URL}"
             sh '''
                 set +e
                 echo '--- 已部署提交 ---'
@@ -66,7 +67,7 @@ pipeline {
             '''
         }
         failure {
-            echo '部署失败：请查看 Console Output 中红色报错的阶段。构建与测试阶段失败不会停止正在运行的服务；若在 Stop service 之后失败，服务可能处于停止状态，请登录 192.168.0.111 执行 systemctl status knowledgebase.service 与 journalctl -u knowledgebase.service -n 200 排查。'
+            echo '部署失败：请查看 Console Output 中红色报错的阶段。构建与测试阶段失败不会停止正在运行的服务；若在 Stop service 之后失败，服务可能处于停止状态，请登录部署主机执行 systemctl status knowledgebase.service 与 journalctl -u knowledgebase.service -n 200 排查。'
         }
     }
 }

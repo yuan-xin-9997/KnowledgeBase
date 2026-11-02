@@ -2,6 +2,7 @@ import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from "vitest
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 
@@ -19,6 +20,7 @@ let provider: ReturnType<typeof ai.createProvider>;
 beforeAll(async () => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kb-backend-"));
   process.env.DATA_DIR = tempDir;
+  process.env.ALLOW_REGISTRATION = "true";
   db = (await import("../../db.js")).db;
   search = await import("../search.js");
   rag = await import("../rag.js");
@@ -42,7 +44,9 @@ beforeAll(async () => {
     expect(response.statusCode).toBe(201);
     return { cookie: String(response.headers["set-cookie"]).split(";")[0], user: response.json().user };
   };
-  const owner = await register("owner");
+  await (await import("../../initialize.js")).initializeAdmin({ username: "owner", email: "owner@test.local", password: "StrongTestPassword!" });
+  const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { account: "owner", password: "StrongTestPassword!" } });
+  const owner = { cookie: String(login.headers["set-cookie"]).split(";")[0], user: login.json().user };
   const second = await register("second");
   ownerCookie = owner.cookie;
   secondCookie = second.cookie;
@@ -259,6 +263,21 @@ describe("multi-user API boundaries", () => {
     }
   });
 
+  it("denies updating and testing a local source after its owner loses admin rights", async () => {
+    const ownerId = provider.user_id;
+    db.prepare("UPDATE users SET role='user' WHERE id=?").run(ownerId);
+    try {
+      const requests = [
+        { method: "PATCH" as const, url: `/api/sources/${sourceId}`, payload: { config: { path: tempDir } } },
+        { method: "POST" as const, url: `/api/sources/${sourceId}/test` },
+        { method: "POST" as const, url: "/api/sources/test", payload: { type: "local", sourceId, config: {} } },
+      ];
+      for (const request of requests) {
+        expect((await app.inject({ ...request, headers: { cookie: ownerCookie } })).statusCode).toBe(403);
+      }
+    } finally { db.prepare("UPDATE users SET role='admin' WHERE id=?").run(ownerId); }
+  });
+
   it("does not return any portion of source credentials", async () => {
     const { sanitizeConfig } = await import("../sources.js");
     const result = sanitizeConfig({ apiLink: "https://cubox.pro/c/api/save/secret-token", token: "secret-token", password: "password", host: "nas" });
@@ -369,5 +388,51 @@ describe("AI scope and protocol handling", () => {
     const history = await app.inject({ url: `/api/chat/sessions/${id}`, headers: { cookie: ownerCookie } });
     expect(history.json().messages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"]);
     expect(history.json().messages[1].citations[0].documentId).toBe("private-doc");
+  });
+
+  it("syncs bundled fictional materials and answers through the offline HTTP fixture with verifiable citations", async () => {
+    const fixturePath = new URL("../../../../scripts/demo-model.mjs", import.meta.url).href;
+    const { createDemoServer, content } = await import(fixturePath) as {
+      createDemoServer: () => import("node:http").Server; content: string;
+    };
+    const server = createDemoServer();
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as import("node:net").AddressInfo).port;
+    const sources = await import("../sources.js");
+    const materials = fileURLToPath(new URL("../../../../examples/materials/", import.meta.url));
+    const original = fs.readFileSync(path.join(materials, "海岬项目.md"));
+    const mtime = fs.statSync(path.join(materials, "海岬项目.md")).mtimeMs;
+    const row = sources.createSource(provider.user_id, { name: "虚构资料", type: "local", config: { path: materials } });
+    try {
+      const jobId = "demo-sync";
+      db.prepare("INSERT INTO sync_jobs(id,source_id,user_id,status,created_at) VALUES(?,?,?,'queued',?)")
+        .run(jobId, row.id, provider.user_id, new Date().toISOString());
+      const result = await (await import("../sync.js")).runJob(provider.user_id, row.id, jobId);
+      expect(result.created).toBe(2);
+      expect(result.errors).toBe(0);
+      const matches = (await app.inject({ url: `/api/search?q=${encodeURIComponent("海岬")}&sourceId=${row.id}`, headers: { cookie: ownerCookie } })).json();
+      const document = matches.items.find((item: { title: string }) => item.title.includes("海岬项目"));
+      expect(document).toBeDefined();
+      const demoProvider = ai.createProvider(provider.user_id, { name: "offline demo", protocol: "openai", baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "demo-only", model: "offline-demo" });
+      expect(await ai.completeOnce({ provider: demoProvider, messages: [{ role: "user", content: "test" }] })).toBe(content);
+      const created = await app.inject({ method: "POST", url: "/api/chat/sessions", headers: { cookie: ownerCookie }, payload: {
+        providerId: demoProvider.id, scope: { mode: "documents", documentIds: [document.id] },
+      } });
+      const id = created.json().session.id;
+      const answer = await app.inject({ method: "POST", url: `/api/chat/sessions/${id}/messages`, headers: { cookie: ownerCookie }, payload: { content: "海岬项目试运行日期和负责人是什么？" } });
+      expect(answer.statusCode).toBe(200);
+      const history = (await app.inject({ url: `/api/chat/sessions/${id}`, headers: { cookie: ownerCookie } })).json();
+      expect(history.messages[1].content).toBe(content);
+      expect(history.messages[1].citations[0].documentId).toBe(document.id);
+      const cited = (await app.inject({ url: `/api/documents/${document.id}`, headers: { cookie: ownerCookie } })).json().document;
+      expect(cited.content).toContain("DEMO-001");
+      expect(cited.content).toContain("林澄");
+      expect(fs.readFileSync(path.join(materials, "海岬项目.md"))).toEqual(original);
+      expect(fs.statSync(path.join(materials, "海岬项目.md")).mtimeMs).toBe(mtime);
+    } finally {
+      sources.deleteSource(provider.user_id, row.id);
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
   });
 });

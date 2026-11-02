@@ -46,7 +46,7 @@
       <userRemoteConfigs>
         <hudson.plugins.git.UserRemoteConfig>
           <url>git@github.com:yuan-xin-9997/KnowledgeBase.git</url>
-          <credentialsId>truthanalysis-github-ssh</credentialsId>
+          <credentialsId>your-github-ssh-credential-id</credentialsId>
         </hudson.plugins.git.UserRemoteConfig>
       </userRemoteConfigs>
       <branches>

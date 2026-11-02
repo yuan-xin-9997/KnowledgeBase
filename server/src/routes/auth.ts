@@ -6,31 +6,16 @@ import {
   clearSessionCookie,
   createSession,
   destroySession,
-  firstUserIsAdmin,
   hashPassword,
   mapUser,
   requireUser,
   setSessionCookie,
   verifyPassword,
 } from "../auth.js";
+import { newPasswordSchema, registerSchema } from "../registration.js";
 import { config } from "../config.js";
 import { parseBody, sendError } from "../util.js";
-import type { AuthUser, UserRole } from "../types.js";
-
-const newPasswordSchema = z.string().min(8, "密码至少 8 位").max(128)
-  .refine((value) => Buffer.byteLength(value, "utf8") <= 72, "密码 UTF-8 编码不能超过 72 字节");
-
-const registerSchema = z.object({
-  email: z.string().trim().email("请输入有效邮箱"),
-  username: z
-    .string()
-    .trim()
-    .min(3, "用户名至少 3 个字符")
-    .max(32, "用户名最多 32 个字符")
-    .regex(/^[a-zA-Z0-9_.-]+$/, "用户名只能包含字母、数字、下划线、点和短横线"),
-  password: newPasswordSchema,
-  displayName: z.string().trim().max(64).optional(),
-});
+import type { AuthUser } from "../types.js";
 
 const loginSchema = z.object({
   account: z.string().trim().min(1, "请输入邮箱或用户名"),
@@ -61,6 +46,10 @@ function checkRateLimit(key: string): boolean {
 export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/register", async (request, reply) => {
     try {
+      if (!db.prepare("SELECT 1 FROM users LIMIT 1").get()) {
+        reply.code(403).send({ error: "请先在服务器运行 npm run init-admin 初始化管理员" });
+        return;
+      }
       if (!config.allowRegistration) {
         reply.code(403).send({ error: "当前未开放注册" });
         return;
@@ -78,8 +67,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
       const passwordHash = await hashPassword(body.password);
-      // Decide the first administrator after hashing, without an async registration race.
-      const role: UserRole = firstUserIsAdmin() ? "admin" : "user";
+      const role = "user";
       const id = newId("usr");
       db.prepare(
         `INSERT INTO users(id, email, username, password_hash, display_name, role, created_at)

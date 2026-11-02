@@ -1,6 +1,6 @@
 # 部署与 Jenkins 配置
 
-部署目标：`192.168.0.111`，目录 `/opt/KnowledgeBase`，systemd 服务 `knowledgebase.service`，监听 `0.0.0.0:36080`。
+部署目标：`deploy.example.com`，目录 `/opt/KnowledgeBase`，systemd 服务 `knowledgebase.service`，监听 `0.0.0.0:36080`。
 
 ## 流水线结构
 
@@ -11,9 +11,9 @@
 3. `update`：`rsync` 工作区到 `/opt/KnowledgeBase`，保留 `.data/`、`.env`、`node_modules/`。
 4. `start`：安装/刷新 systemd 单元，必要时 `npm ci --omit=dev`，启动服务，`health.mjs` 轮询 `/api/health`。
 
-触发器：`pollSCM('H/30 * * * *')`，仓库使用 SSH 地址 `git@github.com:yuan-xin-9997/KnowledgeBase.git`，凭据沿用 Jenkins 已有的 `truthanalysis-github-ssh`。
+触发器：`pollSCM('H/30 * * * *')`，仓库使用 SSH 地址 `git@github.com:yuan-xin-9997/KnowledgeBase.git`，凭据示例为 `your-github-ssh-credential-id`，导入前替换为自己的 Jenkins 凭据 ID；既有任务无需重新导入。
 
-## 首次准备（在 192.168.0.111 上以有 sudo 权限的账号执行）
+## 首次准备（在 deploy.example.com 上以有 sudo 权限的账号执行）
 
 ```bash
 sudo mkdir -p /opt/KnowledgeBase/.data
@@ -46,12 +46,14 @@ EOF
 sudo chmod 600 /opt/KnowledgeBase/.env
 ```
 
+空库首次启动后，在部署目录用服务运行账号执行 `npm run init-admin`（交互输入管理员密码，需加载同一 `.env`）。旧库无需初始化。普通注册默认关闭，需要时在 `.env` 显式设置 `ALLOW_REGISTRATION=true`。
+
 ## 创建 Jenkins 任务
 
 使用仓库内的 `job-config.xml`（需要 Jenkins 管理员账号与 API Token）：
 
 ```bash
-JENKINS=http://192.168.0.111:8080
+JENKINS=http://deploy.example.com:8080
 AUTH=admin:<API_TOKEN>
 
 # 取 CSRF crumb
@@ -81,7 +83,7 @@ curl -s -u "$AUTH" -H "Jenkins-Crumb: $CRUMB" -X POST "$JENKINS/job/KnowledgeBas
 ## 验证
 
 ```bash
-curl -fsS http://192.168.0.111:36080/api/health
+curl -fsS http://deploy.example.com:36080/api/health
 sudo systemctl status knowledgebase.service --no-pager
 sudo journalctl -u knowledgebase.service -n 100 --no-pager
 cat /opt/KnowledgeBase/DEPLOYED_COMMIT

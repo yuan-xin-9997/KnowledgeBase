@@ -143,11 +143,6 @@ export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
-export function firstUserIsAdmin(): boolean {
-  const row = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
-  return row.count === 0;
-}
-
 export function timingSafeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);

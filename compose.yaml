@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-36080}:36080"
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:36080}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      SYNC_SCHEDULER: "false"
+    volumes:
+      - kb-data:/app/data
+      - ./examples/materials:/materials:ro
+    restart: unless-stopped
+  demo-model:
+    image: node:24-bookworm-slim
+    profiles: [demo]
+    working_dir: /demo
+    command: [node, demo-model.mjs]
+    environment:
+      DEMO_HOST: 0.0.0.0
+    volumes:
+      - ./scripts/demo-model.mjs:/demo/demo-model.mjs:ro
+    # No host port: only the Compose network can reach this fixture.
+
+volumes:
+  kb-data:

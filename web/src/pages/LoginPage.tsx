@@ -121,7 +121,7 @@ export default function LoginPage() {
             <p className="mt-2 text-[13.5px] text-[var(--muted)]">
               {mode === "login"
                 ? "登录后继续整理与探索你的知识。"
-                : "第一个注册的账号将自动成为管理员。"}
+                : "普通注册需管理员开放；首次安装请在服务器运行 npm run init-admin。"}
             </p>
           </div>
 

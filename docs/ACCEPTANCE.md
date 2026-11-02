@@ -23,7 +23,7 @@ npm start
 | 环境变量 | 用途 |
 | --- | --- |
 | `KB_BASE_URL` | 默认 `http://127.0.0.1:36080` |
-| `KB_ACCOUNT` / `KB_PASSWORD` | 验收账号与密码，密码必填；新环境自动注册，已有账号则登录 |
+| `KB_ACCOUNT` / `KB_PASSWORD` | 预先通过 `npm run init-admin` 初始化的管理员账号与密码，密码必填；脚本仅登录 |
 | `KB_LOCAL_PATH` | Windows UNC 或服务器可读的专业资料目录 |
 | `KB_LOCAL_MAX` | 默认 12 份，控制首次抽取成本 |
 | `CUBOX_API_LINK` | Cubox API 扩展授权链接 |

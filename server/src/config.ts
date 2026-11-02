@@ -27,7 +27,7 @@ export const config = {
       path.join(cwd, "public"),
     ]),
   appOrigin: process.env.APP_ORIGIN || "",
-  allowRegistration: process.env.ALLOW_REGISTRATION !== "false",
+  allowRegistration: process.env.ALLOW_REGISTRATION === "true",
   sessionDays: Number(process.env.SESSION_DAYS || 30),
   syncScheduler: process.env.SYNC_SCHEDULER !== "false",
   logLevel: process.env.LOG_LEVEL || "info",

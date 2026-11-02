@@ -12,8 +12,8 @@
  * 可选：
  *   KB_BASE_URL       默认 http://127.0.0.1:36080
  *   KB_ACCOUNT        默认 admin@local.test
- *   KB_PASSWORD       必填，验收账号密码（新环境首次运行时注册）
- *   KB_LOCAL_PATH     默认 NAS 专业资料 UNC 路径
+ *   KB_PASSWORD       必填，预先初始化的验收账号密码
+ *   KB_LOCAL_PATH     必填（使用本地来源时），由操作者显式指定
  *   KB_LOCAL_MAX      默认 12（首次验收只取少量文件，避免同步过久）
  *   KB_SMB_HOST       设置后使用 SMB 代替本地目录（部署服务器验收）
  *   KB_SMB_SHARE      SMB 共享名
@@ -32,9 +32,7 @@ import path from "node:path";
 const base = (process.env.KB_BASE_URL || "http://127.0.0.1:36080").replace(/\/$/, "");
 const account = process.env.KB_ACCOUNT || "admin@local.test";
 const password = process.env.KB_PASSWORD || "";
-const localPath =
-  process.env.KB_LOCAL_PATH ||
-  "\\\\192.168.0.100\\personal_folder\\Z_Backup\\雷神笔记本E盘同步到NAS的数据\\100-major-专业-pro";
+const localPath = process.env.KB_LOCAL_PATH || "";
 const localMax = Number(process.env.KB_LOCAL_MAX || 12);
 const cuboxLink = process.env.CUBOX_API_LINK || "";
 const ai = {
@@ -94,20 +92,10 @@ async function ensureAuth() {
   } catch {
     // not logged in
   }
-  try {
-    const result = await request("POST", "/api/auth/login", { account, password });
-    record("登录", true, result.user?.username);
-    return result.user;
-  } catch {
-    const result = await request("POST", "/api/auth/register", {
-      email: account.includes("@") ? account : `${account}@local.test`,
-      username: account.includes("@") ? account.split("@")[0] : account,
-      password,
-      displayName: "验收管理员",
-    });
-    record("注册并登录（首个账号为管理员）", true, result.user?.username);
-    return result.user;
-  }
+  const result = await request("POST", "/api/auth/login", { account, password });
+  if (result.user?.role !== "admin") throw new Error("请使用预先通过本机命令初始化的管理员账号");
+  record("登录", true, result.user?.username);
+  return result.user;
 }
 
 async function findSource(name) {
@@ -265,6 +253,7 @@ async function streamChat(sessionId, content) {
 
 async function main() {
   if (!password) throw new Error("请设置 KB_PASSWORD，不使用公共默认密码");
+  if (!process.env.KB_SMB_HOST && !localPath) throw new Error("请显式设置 KB_LOCAL_PATH 或 KB_SMB_HOST；不会自动读取个人目录");
   log(`目标服务：${base}`);
   const user = await ensureAuth();
   artifacts.user = user;

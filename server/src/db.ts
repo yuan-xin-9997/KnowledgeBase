@@ -42,6 +42,8 @@ if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'fingerprint_v1'").get()
     db.prepare("INSERT INTO app_settings(key,value) VALUES('fingerprint_v1','1')").run();
   })();
 }
+// Existing installations retain their users and never become eligible for bootstrap.
+db.prepare("INSERT OR IGNORE INTO app_settings(key,value) SELECT 'admin_initialized','1' WHERE EXISTS (SELECT 1 FROM users)").run();
 export { db };
 
 export function nowIso(): string {

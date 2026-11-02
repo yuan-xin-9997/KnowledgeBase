@@ -3,7 +3,7 @@
 自托管的个人知识中枢：把 NAS 专业资料、Cubox 收藏、语雀文档与本地文件聚合到一处，提供统一检索、来源筛选和「有据可依」的 AI 会话。
 
 - 服务监听：`0.0.0.0:36080`
-- 多用户注册 / 登录（第一个账号自动成为管理员）
+- 多用户注册 / 登录（管理员通过本机命令初始化）
 - 数据全部保存在自己的服务器（SQLite + 本地文件），不依赖第三方云服务
 - 部署：Jenkins 每 30 分钟轮询 GitHub，构建通过后停服、同步到 `/opt/KnowledgeBase`、systemd 启动
 
@@ -79,6 +79,10 @@ JenkinsConfig/          Jenkinsfile、部署脚本、systemd 单元、任务配�
 scripts/                验收脚本
 ```
 
+## 安全首次安装与示例体验
+
+见 [首次安装指南](docs/QUICKSTART.md)：Docker Compose、本机管理员初始化、虚构资料、引用核对与备份恢复。使用现有 Apache-2.0 许可证，保留原声明。
+
 ## 本地开发
 
 前置：Node.js >= 22.9（建议 24）、npm 10+。
@@ -96,7 +100,7 @@ npm run dev:server     # API :36080
 npm run dev:web        # 前端 :5173，/api 代理到 36080
 ```
 
-打开 `http://localhost:36080`（生产构建）或 `http://localhost:5173`（开发）。首次访问注册的第一个账号即管理员。
+打开 `http://localhost:36080`（生产构建）或 `http://localhost:5173`（开发）。空库须先运行 `npm run init-admin`，再用该账号登录；普通注册默认关闭。
 
 > Windows PowerShell 设置环境变量：`$env:DATA_DIR='E:\dev\KnowledgeBase\data'; $env:PORT='36080'`。
 
@@ -113,7 +117,7 @@ npm run dev:web        # 前端 :5173，/api 代理到 36080
 | `DATA_DIR` | `./data` | SQLite 与密钥文件目录 |
 | `APP_SECRET` | 自动生成 | 加密来源配置与模型 Key 的主密钥；务必持久化 |
 | `APP_ORIGIN` | 空 | 反向代理场景下的外部访问 Origin，如 `https://kb.example.com` |
-| `ALLOW_REGISTRATION` | `true` | 是否开放注册 |
+| `ALLOW_REGISTRATION` | `false` | 显式设为 `true` 才开放普通用户注册；不能初始化管理员 |
 | `SESSION_DAYS` | `30` | 登录有效期 |
 | `SYNC_SCHEDULER` | `true` | 是否启用定时同步 |
 | `API_RATE_LIMIT` | `120` | `/api/v1` 与 `/mcp` 每 IP 每分钟请求上限 |
@@ -125,7 +129,7 @@ npm run dev:web        # 前端 :5173，/api 代理到 36080
 
 ### 本地目录
 
-- `path`：服务器可读的绝对路径，或 Windows UNC（如 `\\192.168.0.100\personal_folder\...`）
+- `path`：服务器可读的绝对路径，或 Windows UNC（如 `\\nas.example.test\documents\...`）
 - `includeExtensions`：逗号分隔；留空使用默认文档/代码类型
 - `excludeGlobs`：逗号分隔，如 `*.tmp,**/cache/**`
 - `maxFileSizeMb`：默认 100
@@ -175,7 +179,7 @@ Cubox 读取使用官方 CLI 同源的 `/c/api/cli/*` 接口，链接中的 toke
 - `JenkinsConfig/sudoers.d-knowledgebase-deploy`：允许 Jenkins 用户管理该服务
 - `JenkinsConfig/README.md`：首次部署与排障
 
-Jenkins 地址：`http://192.168.0.111:8080/`，任务名 `KnowledgeBase`。
+Jenkins 地址由部署者配置，例如 `https://jenkins.example.com/`，任务名 `KnowledgeBase`。
 
 ## 检索实现说明
 
