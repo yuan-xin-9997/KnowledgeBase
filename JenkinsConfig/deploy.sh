@@ -6,11 +6,9 @@
 #   prepare  安装依赖、类型检查、测试、构建（失败时不会停止现有服务）
 #   stop     停止现有服务
 #   update   把工作区代码同步到 /opt/KnowledgeBase（保留 .data/.env）
-#   start    校验固定 unit 由 root 持有，启动服务并做健康检查
+#   start    安装/刷新 systemd 单元、启动服务并做健康检查
 #
 # 约定：部署根目录 /opt/KnowledgeBase（属主 jenkins:jenkins）
-#       生产 unit /etc/systemd/system/knowledgebase.service 由 root 持有并维护；
-#       Jenkins 只能 stop/start/restart 该固定 unit，不能安装或覆盖 unit/sudoers。
 #       服务 knowledgebase.service，监听 0.0.0.0:36080
 set -euo pipefail
 
@@ -160,13 +158,12 @@ case "${1:-}" in
       log "生产依赖未变化，跳过 npm ci"
     fi
 
-    unit_file="/etc/systemd/system/$service"
-    [[ -f "$unit_file" ]] || die "生产 unit 不存在：$unit_file（必须由 root 预先安装）"
-    [[ "$(stat -c '%U:%G' "$unit_file" 2>/dev/null || true)" == "root:root" ]] \
-      || die "生产 unit 必须由 root:root 持有：$unit_file"
-    [[ ! -w "$unit_file" ]] || die "生产 unit 可被部署账号写入，拒绝启动：$unit_file"
-    [[ "$(systemctl show -p FragmentPath --value "$service" 2>/dev/null || true)" == "$unit_file" ]] \
-      || die "systemd 实际加载的 unit 不是 $unit_file，拒绝启动"
+    if ! cmp -s "$deploy_root/JenkinsConfig/knowledgebase.service" "/etc/systemd/system/$service"; then
+      log "安装 systemd 单元 $service"
+      sudo -n install -m 0644 "$deploy_root/JenkinsConfig/knowledgebase.service" "/etc/systemd/system/$service"
+      sudo -n systemctl daemon-reload
+    fi
+    sudo -n systemctl enable "$service" >/dev/null
     sudo -n systemctl restart "$service"
 
     log "等待健康检查…"

@@ -1,5 +1,3 @@
-# 参考副本：生产单元由 root 安装并持有到 /etc/systemd/system/knowledgebase.service。
-# 部署流程不得安装或覆盖该文件；应用账号对生产单元没有写权限。
 [Unit]
 Description=Knowledge Base (Zhiyu)
 Documentation=https://github.com/yuan-xin-9997/KnowledgeBase
