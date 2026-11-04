@@ -412,7 +412,7 @@ function buildItem(
         sourceUpdatedAt: toIso((info as unknown as SmbEntry).mtime) ?? sourceUpdatedAt,
         metadata: {
           ...(extracted.metadata ?? {}),
-          relativePath: externalId,
+          relativePath: relPath,
           smbPath: url,
           ...(cached ? {} : { cacheLimitExceeded: true, originalUnavailable: "原件缓存已达容量上限，可提高 maxCacheSizeMb 后重新同步" }),
         },
@@ -431,7 +431,7 @@ function buildItem(
     sourceUpdatedAt,
     filePath: cachePath,
     metadata: {
-      relativePath: externalId,
+      relativePath: relPath,
       extension,
       host: config.host,
       share: config.share,
