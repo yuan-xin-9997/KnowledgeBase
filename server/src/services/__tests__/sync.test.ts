@@ -84,7 +84,7 @@ it("records item failures and retries only those items without deleting unrelate
   const scan = vi.spyOn(connector, "scan").mockImplementation(async function* (_config, context) {
     if (!broken) expect(context.since).toBeNull();
     yield { externalId: "stable", title: "Stable", kind: "file" as const, load: stableLoad };
-    yield { externalId: "failed", title: "Failed", kind: "file" as const, load: failedLoad };
+    yield { externalId: "failed", title: "Failed", kind: "file" as const, metadata: { relativePath: "sub/failed.txt" }, load: failedLoad };
     return { complete: true, scanned: 2 };
   });
   try {
@@ -92,6 +92,8 @@ it("records item failures and retries only those items without deleting unrelate
     for (let i = 0; i < 200 && sync.isSourceSyncing(sourceId); i++) await new Promise(resolve => setTimeout(resolve, 10));
     const items = db.prepare("SELECT external_id, action, error FROM sync_items WHERE job_id = ? ORDER BY external_id").all(first.id);
     expect(items).toContainEqual({ external_id: "failed", action: "error", error: "测试读取失败" });
+    const failedDoc = db.prepare("SELECT metadata FROM documents WHERE external_id = 'failed'").get() as { metadata: string };
+    expect(JSON.parse(failedDoc.metadata)).toMatchObject({ relativePath: "sub/failed.txt", extractionError: true });
     broken = false;
     const retried = sync.startSync(userId, sourceId, { retryJobId: first.id });
     for (let i = 0; i < 200 && sync.isSourceSyncing(sourceId); i++) await new Promise(resolve => setTimeout(resolve, 10));

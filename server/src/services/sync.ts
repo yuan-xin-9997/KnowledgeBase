@@ -269,9 +269,11 @@ export async function runJob(
           `处理 ${item.title} 失败：${error instanceof Error ? error.message : String(error)}`,
         );
         // Store a metadata-only record so the file remains discoverable by name.
-        if (!existing.has(item.externalId)) {
-          try {
-            const timestamp = nowIso();
+        const errorMetadata = JSON.stringify({ ...(item.metadata ?? {}), extractionError: true });
+        try {
+          const timestamp = nowIso();
+          const prior = existing.get(item.externalId);
+          if (!prior) {
             const docId = newId("doc");
             db.prepare(
               `INSERT OR IGNORE INTO documents(
@@ -292,15 +294,32 @@ export async function runJob(
               item.sourceCreatedAt ?? null,
               item.sourceUpdatedAt ?? null,
               item.filePath ?? null,
-              JSON.stringify({ ...(item.metadata ?? {}), extractionError: true }),
+              errorMetadata,
               timestamp,
               timestamp,
             );
             indexDocument(docId);
             stats.created += 1;
-          } catch {
-            // ignore secondary failures
+          } else {
+            db.prepare(
+              `UPDATE documents SET title = ?, description = ?, mime_type = ?, size = ?,
+                source_created_at = ?, source_updated_at = ?, file_path = ?, metadata = ?, updated_at = ?
+               WHERE id = ?`,
+            ).run(
+              item.title,
+              item.description ?? null,
+              item.mimeType ?? null,
+              item.size ?? null,
+              item.sourceCreatedAt ?? null,
+              item.sourceUpdatedAt ?? null,
+              item.filePath ?? null,
+              errorMetadata,
+              timestamp,
+              prior.id,
+            );
           }
+        } catch {
+          // ignore secondary failures
         }
       }
       persist();
