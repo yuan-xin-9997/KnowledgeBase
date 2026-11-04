@@ -222,6 +222,21 @@ interface BuildOptions {
   maxTokens: number;
   temperature: number;
   stream: boolean;
+  sessionId?: string;
+}
+
+/**
+ * OpenCode Go requires every request to carry a stable client session id.
+ * Its gateway is otherwise OpenAI/Anthropic compatible, so keep the special
+ * case here instead of exposing transport headers in the provider settings.
+ */
+export function isOpenCodeGo(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.hostname === "opencode.ai" && /(^|\/)go(\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function nonEmpty(value: string | undefined): string {
@@ -270,12 +285,21 @@ function buildAnthropicMessages(
   return { system: systemParts.join("\n\n"), messages };
 }
 
+function gatewayHeaders(provider: AiProviderRow, sessionId?: string): Record<string, string> {
+  if (!isOpenCodeGo(provider.base_url)) return {};
+  return {
+    "x-opencode-session": sessionId?.trim() || `kb-${provider.id}`,
+    "user-agent": "zhiyu-knowledgebase/1.0",
+  };
+}
+
 function buildProtocolRequest(options: BuildOptions): ProtocolRequest {
   const provider = options.provider;
   const apiKey = providerApiKey(provider);
   if (!apiKey) throw new AiError("该模型配置缺少 API Key，请重新填写", 400);
   const temperature = clampNumber(options.temperature, 0, 2);
   const maxTokens = Math.round(clampNumber(options.maxTokens, 1, 32768));
+  const extraHeaders = gatewayHeaders(provider, options.sessionId);
 
   if (provider.protocol === "anthropic") {
     const converted = buildAnthropicMessages([
@@ -296,6 +320,7 @@ function buildProtocolRequest(options: BuildOptions): ProtocolRequest {
         "content-type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        ...extraHeaders,
       },
       body,
     };
@@ -306,6 +331,7 @@ function buildProtocolRequest(options: BuildOptions): ProtocolRequest {
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${apiKey}`,
+      ...extraHeaders,
     },
     body: {
       model: provider.model,
@@ -611,6 +637,8 @@ export interface StreamChatOptions {
   messages: ChatTurn[];
   maxTokens?: number;
   temperature?: number;
+  /** Stable conversation id, forwarded to gateways that require session routing. */
+  sessionId?: string;
   /** Defaults to 120s. */
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -632,6 +660,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       maxTokens: options.maxTokens ?? options.provider.max_tokens,
       temperature: options.temperature ?? options.provider.temperature,
       stream: true,
+      sessionId: options.sessionId,
     });
     const response = await fetch(prepared.url, {
       method: "POST",
@@ -684,6 +713,7 @@ export interface CompleteOptions {
   messages: ChatTurn[];
   maxTokens?: number;
   temperature?: number;
+  sessionId?: string;
   timeoutMs?: number;
 }
 
@@ -699,6 +729,7 @@ export async function completeOnce(options: CompleteOptions): Promise<string> {
       maxTokens: options.maxTokens ?? options.provider.max_tokens,
       temperature: options.temperature ?? options.provider.temperature,
       stream: false,
+      sessionId: options.sessionId,
     });
     const response = await fetch(prepared.url, {
       method: "POST",
@@ -736,6 +767,7 @@ export async function testProviderConnection(row: AiProviderRow): Promise<TestPr
       // Reasoning models may spend a small output budget before emitting visible text.
       maxTokens: 2048,
       temperature: 0,
+      sessionId: `kb-test-${row.id}`,
       timeoutMs: 60_000,
     });
     const elapsed = Date.now() - started;

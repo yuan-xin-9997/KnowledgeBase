@@ -390,6 +390,7 @@ export default async function chatRoutes(app: FastifyInstance): Promise<void> {
         messages,
         maxTokens: provider.max_tokens,
         temperature: provider.temperature,
+        sessionId: session.id,
         signal: controller.signal,
         onDelta: (delta) => {
           assistantText += delta;

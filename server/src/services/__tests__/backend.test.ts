@@ -374,6 +374,25 @@ describe("AI scope and protocol handling", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(protocol === "openai" ? "https://example.test/v1/chat/completions" : "https://example.test/v1/messages");
   });
 
+  it("sends the conversation id to OpenCode Go so its gateway can route and cache requests", async () => {
+    const fetchMock = vi.fn(async (url: string, options: { headers: Record<string, string> }) => {
+      expect(url).toBe("https://opencode.ai/inference/go/openai/v1/chat/completions");
+      expect(options.headers["x-opencode-session"]).toBe("ses_demo");
+      expect(options.headers["user-agent"]).toBe("zhiyu-knowledgebase/1.0");
+      return new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const openCodeProvider = { ...provider, base_url: "https://opencode.ai/inference/go/openai/v1" };
+    const text = await ai.streamChat({
+      provider: openCodeProvider,
+      messages: [{ role: "user", content: "question" }],
+      sessionId: "ses_demo",
+      onDelta: () => {},
+    });
+    expect(text).toBe("OK");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("streams and persists an answer with document citations through the chat API", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response('data: {"choices":[{"delta":{"content":"梯度爆炸可通过梯度裁剪缓解 [1]。"}}]}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } })));
     const created = await app.inject({ method: "POST", url: "/api/chat/sessions", headers: { cookie: ownerCookie }, payload: {
