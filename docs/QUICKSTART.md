@@ -53,6 +53,6 @@ docker compose exec app node scripts/restore-backup.mjs /app/data/backups/backup
 
 ## 离线验证边界
 
-`npm run typecheck`、`npm test`、`npm run build` 是 GitHub Actions 的检查入口。测试使用临时目录、虚构凭据及模拟上游，不读取生产挂载，不运行 `scripts/acceptance.mjs`，不调用付费模型。安装 npm 包及构建镜像仍需要依赖下载网络。
+`npm run typecheck`、`npm test`、`npm run build` 是本地离线检查命令。测试使用临时目录、虚构凭据及模拟上游，不读取生产挂载，不运行 `scripts/acceptance.mjs`，不调用付费模型。安装 npm 包及构建镜像仍需要依赖下载网络。
 
 真实来源验收是单独的、由操作者显式配置并运行的流程，见 [验收说明](ACCEPTANCE.md)。
